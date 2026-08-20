@@ -242,6 +242,20 @@ describe('Editor', () => {
     expect(selectedElement(kit.designStore.getState().design, 'created-element')).toBeUndefined();
   });
 
+  it('select 실패는 저장 알림 전에 문서·History를 복구하고 업로드 asset을 보상한다', async () => {
+    const kit = createEditorTestKit();
+    vi.mocked(kit.renderer.select).mockImplementationOnce(() => { throw new Error('select failed'); });
+    const file = new File(['image'], 'birthday.png', { type: 'image/png' });
+
+    await expect(kit.editor.addImage(file)).rejects.toThrow('select failed');
+
+    expect(kit.onDocumentChange).not.toHaveBeenCalled();
+    expect(selectedElement(kit.designStore.getState().design, 'created-element')).toBeUndefined();
+    expect(kit.assetGateway.remove).toHaveBeenCalledWith('asset-uploaded');
+    await kit.editor.undo();
+    expect(selectedElement(kit.designStore.getState().design, 'photo')).toBeDefined();
+  });
+
   it('이미지 교체의 변경 콜백 실패도 새 asset만 보상 제거한다', async () => {
     const kit = createEditorTestKit();
     kit.runtimeStore.getState().setSelectedElementIds(['photo']);
@@ -398,6 +412,24 @@ describe('Editor', () => {
 
     expect(kit.renderer.mount).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['render', 'select'] as const)(
+    '초기 mount %s 실패 뒤에도 같은 Editor의 재-mount를 영구 거부한다',
+    async (failurePoint) => {
+      const kit = createEditorTestKit();
+      if (failurePoint === 'render') {
+        vi.mocked(kit.renderer.render).mockRejectedValueOnce(new Error('render failed'));
+      } else {
+        vi.mocked(kit.renderer.select).mockImplementationOnce(() => { throw new Error('select failed'); });
+      }
+
+      await expect(kit.editor.mount(document.createElement('canvas'))).rejects.toThrow();
+      await expect(kit.editor.mount(document.createElement('canvas')))
+        .rejects.toThrow('이미 mount된 Editor입니다.');
+
+      expect(kit.renderer.mount).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('mount render 대기 중 dispose되면 ready 전환 없이 mount를 거부한다', async () => {
     const kit = createEditorTestKit();

@@ -96,7 +96,7 @@ export class Editor implements EditorApi {
   private readonly history = new EditorHistory();
   private readonly unsubscribe: () => void;
   private operationChain: Promise<void> = Promise.resolve();
-  private mounted = false;
+  private mountAttempted = false;
   private disposed = false;
   private generation = 0;
 
@@ -114,8 +114,8 @@ export class Editor implements EditorApi {
   async mount(canvas: HTMLCanvasElement): Promise<void> {
     return this.enqueue(async () => {
       const generation = this.activeGeneration();
-      if (this.mounted) throw new Error('이미 mount된 Editor입니다.');
-      this.mounted = true;
+      if (this.mountAttempted) throw new Error('이미 mount된 Editor입니다.');
+      this.mountAttempted = true;
       try {
         this.dependencies.renderer.mount(canvas);
         this.assertGeneration(generation);
@@ -125,7 +125,6 @@ export class Editor implements EditorApi {
         this.assertGeneration(generation);
         this.dependencies.runtimeStore.getState().setCanvasStatus('ready');
       } catch (error) {
-        this.mounted = false;
         if (this.isActiveGeneration(generation)) {
           this.dependencies.runtimeStore.getState().setCanvasStatus('error');
         }
@@ -393,10 +392,9 @@ export class Editor implements EditorApi {
   ): Promise<void> {
     await this.dependencies.renderer.render(design);
     this.assertGeneration(generation);
-    this.dependencies.onDocumentChange(design);
-    this.assertGeneration(generation);
     this.dependencies.renderer.select(selection);
     this.assertGeneration(generation);
+    this.dependencies.onDocumentChange(design);
   }
 
   private async handleRendererEvent(event: EditorEvent, eventGeneration: number): Promise<void> {

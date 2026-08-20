@@ -85,3 +85,23 @@
 - `rtk npm run typecheck`: PASS
 - `rtk npm test`: PASS, 6 files / 69 tests
 - `rtk git diff --check`: PASS
+
+## 최종 리뷰 대응 (Important 1–2)
+
+### 적용 정책
+
+- 문서 트랜잭션의 실패 가능한 순서는 `render → generation 검증 → select → generation 검증 → onDocumentChange`다. 동기 `onDocumentChange`는 commit 경계의 마지막 호출이므로 그 뒤에는 rollback을 일으킬 수 있는 작업이나 검증을 두지 않는다.
+- 첫 `mount()` 호출은 renderer 결합 가능성이 시작되는 순간 `mountAttempted`로 기록한다. render/select가 실패해도 같은 Editor 인스턴스는 재-mount하지 않아 reset/unmount Port가 없는 renderer를 재결합하지 않는다.
+
+### RED → GREEN 기록
+
+- RED 9: select가 실패해도 `onDocumentChange`가 새 Design으로 한 번 호출되는 상태와, 초기 render/select 실패 후 두 번째 mount가 renderer를 다시 mount하는 상태를 재현했다.
+- GREEN 9: select를 저장 알림보다 앞으로 이동하고, mountAttempted 수명주기 플래그를 영구화했다. 이미지 select 실패에도 새 asset 보상이 수행되고 Store/History가 rollback되는 것을 고정했다.
+
+### 최종 리뷰 검증
+
+- focused Editor/Command test: PASS, 40 tests
+- `rtk npm run lint`: PASS
+- `rtk npm run typecheck`: PASS
+- `rtk npm test`: PASS, 6 files / 72 tests
+- `rtk git diff --check`: PASS
