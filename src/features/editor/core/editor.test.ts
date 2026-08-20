@@ -115,6 +115,19 @@ describe('Editor', () => {
     expect(selectedElement(kit.designStore.getState().design, 'title')).toBeDefined();
   });
 
+  it('rollback render도 실패하면 최초 오류를 유지하고 canvas 오류를 기록한다', async () => {
+    const kit = createEditorTestKit();
+    vi.mocked(kit.renderer.render)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('rollback render failed'));
+    kit.onDocumentChange.mockImplementation(() => { throw new Error('notification failed'); });
+
+    await expect(kit.editor.addText()).rejects.toThrow('notification failed');
+
+    expect(selectedElement(kit.designStore.getState().design, 'created-element')).toBeUndefined();
+    expect(kit.runtimeStore.getState().canvasStatus).toBe('error');
+  });
+
   it('undo와 redo의 render 실패도 문서와 History를 이전 상태로 복구한다', async () => {
     const kit = createEditorTestKit();
     await kit.editor.addText();
@@ -134,22 +147,39 @@ describe('Editor', () => {
     expect(selectedElement(kit.designStore.getState().design, 'created-element')).toBeDefined();
   });
 
-  it('renderer selection 이벤트는 문서 변경 없이 runtime selection만 바꾼다', () => {
+  it('renderer selection 이벤트는 문서 변경 없이 FIFO runtime selection만 바꾼다', async () => {
     const kit = createEditorTestKit();
 
     kit.emit({ type: 'selection:changed', elementIds: ['title', 'name'] });
 
-    expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['title', 'name']);
+    await vi.waitFor(() => expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['title', 'name']));
     expect(kit.renderer.render).not.toHaveBeenCalled();
     expect(kit.onDocumentChange).not.toHaveBeenCalled();
   });
 
-  it('renderer selection 이벤트의 중복 ID를 순서를 보존해 제거한다', () => {
+  it('renderer selection 이벤트의 중복 ID를 순서를 보존해 제거한다', async () => {
     const kit = createEditorTestKit();
 
     kit.emit({ type: 'selection:changed', elementIds: ['title', 'name', 'title', 'name'] });
 
-    expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['title', 'name']);
+    await vi.waitFor(() => expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['title', 'name']));
+  });
+
+  it('render 중 들어온 selection 이벤트는 실패 rollback 뒤 FIFO 순서로 적용한다', async () => {
+    const kit = createEditorTestKit();
+    let rejectRender: ((error: Error) => void) | undefined;
+    vi.mocked(kit.renderer.render).mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {
+      rejectRender = reject;
+    }));
+    kit.runtimeStore.getState().setSelectedElementIds(['title']);
+
+    const adding = kit.editor.addText();
+    await vi.waitFor(() => expect(kit.renderer.render).toHaveBeenCalledTimes(1));
+    kit.emit({ type: 'selection:changed', elementIds: ['name'] });
+    rejectRender?.(new Error('render failed'));
+
+    await expect(adding).rejects.toThrow('render failed');
+    await vi.waitFor(() => expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['name']));
   });
 
   it('renderer transform 이벤트를 하나의 되돌릴 수 있는 명령으로 기록한다', async () => {
@@ -265,6 +295,26 @@ describe('Editor', () => {
     expect(kit.assetGateway.remove).toHaveBeenCalledWith('asset-uploaded');
   });
 
+  it('render 대기 중 dispose되면 문서를 rollback하고 asset을 한 번만 보상한다', async () => {
+    const kit = createEditorTestKit();
+    let finishRender: (() => void) | undefined;
+    vi.mocked(kit.renderer.render).mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishRender = resolve;
+    }));
+    const file = new File(['image'], 'birthday.png', { type: 'image/png' });
+
+    const adding = kit.editor.addImage(file);
+    await vi.waitFor(() => expect(kit.renderer.render).toHaveBeenCalledTimes(1));
+    kit.editor.dispose();
+    finishRender?.();
+
+    await expect(adding).rejects.toThrow('dispose');
+    expect(selectedElement(kit.designStore.getState().design, 'created-element')).toBeUndefined();
+    expect(kit.onDocumentChange).not.toHaveBeenCalled();
+    expect(kit.renderer.select).not.toHaveBeenCalled();
+    expect(kit.assetGateway.remove).toHaveBeenCalledTimes(1);
+  });
+
   it('단일 이미지 선택에서만 교체하고 다중 선택은 안전하게 무시한다', async () => {
     const kit = createEditorTestKit();
     const file = new File(['image'], 'replacement.png', { type: 'image/png' });
@@ -310,6 +360,34 @@ describe('Editor', () => {
     expect(selectedElement(kit.designStore.getState().design, 'title')).toBeDefined();
   });
 
+  it('인접 다중 삭제는 selection 순서와 무관하게 undo·redo 레이어 순서를 보존한다', async () => {
+    const kit = createEditorTestKit();
+    const original = kit.designStore.getState().design.pages[0].elements.map((element) => element.id);
+    kit.runtimeStore.getState().setSelectedElementIds(['title', 'photo']);
+
+    await kit.editor.deleteSelection();
+    await kit.editor.undo();
+    expect(kit.designStore.getState().design.pages[0].elements.map((element) => element.id)).toEqual(original);
+
+    await kit.editor.redo();
+    expect(kit.designStore.getState().design.pages[0].elements.map((element) => element.id))
+      .toEqual(original.filter((id) => id !== 'photo' && id !== 'title'));
+  });
+
+  it('비인접 다중 삭제도 undo·redo 레이어 순서를 보존한다', async () => {
+    const kit = createEditorTestKit();
+    const original = kit.designStore.getState().design.pages[0].elements.map((element) => element.id);
+    kit.runtimeStore.getState().setSelectedElementIds(['bottom-decoration', 'photo']);
+
+    await kit.editor.deleteSelection();
+    await kit.editor.undo();
+    expect(kit.designStore.getState().design.pages[0].elements.map((element) => element.id)).toEqual(original);
+
+    await kit.editor.redo();
+    expect(kit.designStore.getState().design.pages[0].elements.map((element) => element.id))
+      .toEqual(original.filter((id) => id !== 'photo' && id !== 'bottom-decoration'));
+  });
+
   it('두 번째 mount는 canvas와 무관하게 명확히 거부한다', async () => {
     const kit = createEditorTestKit();
     const first = document.createElement('canvas');
@@ -319,6 +397,23 @@ describe('Editor', () => {
     await expect(kit.editor.mount(second)).rejects.toThrow('이미 mount된 Editor입니다.');
 
     expect(kit.renderer.mount).toHaveBeenCalledTimes(1);
+  });
+
+  it('mount render 대기 중 dispose되면 ready 전환 없이 mount를 거부한다', async () => {
+    const kit = createEditorTestKit();
+    let finishRender: (() => void) | undefined;
+    vi.mocked(kit.renderer.render).mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishRender = resolve;
+    }));
+
+    const mounting = kit.editor.mount(document.createElement('canvas'));
+    await vi.waitFor(() => expect(kit.renderer.render).toHaveBeenCalledTimes(1));
+    kit.editor.dispose();
+    finishRender?.();
+
+    await expect(mounting).rejects.toThrow('dispose');
+    expect(kit.runtimeStore.getState().canvasStatus).not.toBe('ready');
+    expect(kit.renderer.select).not.toHaveBeenCalled();
   });
 
   it('dispose는 renderer 구독을 해제하고 renderer를 정리한다', () => {

@@ -60,3 +60,28 @@
 
 - focused Editor/Command test: PASS, 28 tests
 - `rtk npm run typecheck`: PASS
+
+## 재검토 대응 (Important 1–4, Minor 5)
+
+### 적용 정책
+
+- `dispose()`는 세대를 증가시키며, 모든 renderer/export await 뒤 해당 세대가 여전히 활성인지 확인한다. 세대가 바뀌면 callback·select·ready 전환 없이 실패하고, 문서 트랜잭션은 Domain·History·selection을 복구한다.
+- rollback renderer가 실패하면 최초 오류를 그대로 throw하되 Runtime의 `canvasStatus`를 `error`로 남긴다. dispose된 renderer에는 rollback render를 시도하지 않는다.
+- 다중 삭제 대상은 현재 page index 내림차순으로 고정한다. Composite의 역순 undo가 인접·비인접 레이어를 원래 순서로 복구한다.
+- Composite 일반 계약은 보상 실패 시 완전 원자성이 아닌 best-effort compensation이다. 최초 오류와 모든 보상 오류를 `AggregateError.errors`에 보존한다. Editor 문서 snapshot rollback은 user-facing 원자성 안전망으로 유지한다.
+- `selection:changed`도 동일 operation queue에 넣어 앞선 mutation rollback 이후 FIFO로 반영하고, renderer listener는 이를 await하지 않는다.
+
+### RED → GREEN 기록
+
+- RED 7: rollback render가 실패해도 canvas가 `ready`인 상태, render 대기 중 dispose 뒤 callback/select/asset이 남는 상태, 두 번째 selection event가 rollback에 유실되는 상태를 재현했다.
+- RED 8: 선택 순서에 의존하는 다중 삭제 undo가 `[a,b,d,c]`를 만드는 상태와 Composite 보상 오류를 삼키는 상태를 재현했다.
+- GREEN 7: generation token 검증, disposed rollback-render 차단, recovery-render 실패의 `canvasStatus='error'`, FIFO selection queue를 적용했다.
+- GREEN 8: 내림차순 multi-delete command 구성 및 `AggregateError` 기반 best-effort compensation 오류 보존을 적용했다.
+
+### 재검토 검증
+
+- focused Editor/Command test: PASS, 37 tests
+- `rtk npm run lint`: PASS
+- `rtk npm run typecheck`: PASS
+- `rtk npm test`: PASS, 6 files / 69 tests
+- `rtk git diff --check`: PASS

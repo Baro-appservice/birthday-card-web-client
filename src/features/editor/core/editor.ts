@@ -98,28 +98,37 @@ export class Editor implements EditorApi {
   private operationChain: Promise<void> = Promise.resolve();
   private mounted = false;
   private disposed = false;
+  private generation = 0;
 
   constructor(private readonly dependencies: EditorDependencies) {
     this.unsubscribe = dependencies.renderer.subscribe((event) => {
-      void this.handleRendererEvent(event).catch(() => {
-        this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+      const eventGeneration = this.generation;
+      void this.handleRendererEvent(event, eventGeneration).catch(() => {
+        if (this.isActiveGeneration(eventGeneration)) {
+          this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+        }
       });
     });
   }
 
   async mount(canvas: HTMLCanvasElement): Promise<void> {
     return this.enqueue(async () => {
-      this.assertActive();
+      const generation = this.activeGeneration();
       if (this.mounted) throw new Error('이미 mount된 Editor입니다.');
       this.mounted = true;
       try {
         this.dependencies.renderer.mount(canvas);
+        this.assertGeneration(generation);
         await this.dependencies.renderer.render(this.design);
+        this.assertGeneration(generation);
         this.dependencies.renderer.select(this.selectedElementIds);
+        this.assertGeneration(generation);
         this.dependencies.runtimeStore.getState().setCanvasStatus('ready');
       } catch (error) {
         this.mounted = false;
-        this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+        if (this.isActiveGeneration(generation)) {
+          this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+        }
         throw error;
       }
     });
@@ -218,6 +227,12 @@ export class Editor implements EditorApi {
       this.assertActive();
       const selectedIds = dedupeElementIds(this.selectedElementIds).filter((id) => this.findElement(id));
       if (selectedIds.length === 0) return;
+      const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
+      if (!page) return;
+      selectedIds.sort((left, right) => (
+        page.elements.findIndex((element) => element.id === right)
+        - page.elements.findIndex((element) => element.id === left)
+      ));
       const commands = selectedIds.map((elementId) => new DeleteElementCommand(
         this.dependencies.designStore,
         this.pageId,
@@ -269,14 +284,20 @@ export class Editor implements EditorApi {
 
   exportPng(): Promise<Blob> {
     return this.enqueue(async () => {
-      this.assertActive();
-      return this.dependencies.exporter.exportPng(structuredClone(this.design), { width: 1080, height: 1350 });
+      const generation = this.activeGeneration();
+      const blob = await this.dependencies.exporter.exportPng(
+        structuredClone(this.design),
+        { width: 1080, height: 1350 },
+      );
+      this.assertGeneration(generation);
+      return blob;
     });
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.generation += 1;
     this.unsubscribe();
     this.dependencies.renderer.dispose();
   }
@@ -328,6 +349,7 @@ export class Editor implements EditorApi {
     mutation: () => void,
     selection?: string[],
   ): Promise<void> {
+    const generation = this.activeGeneration();
     const previousDesign = structuredClone(this.design);
     const previousSelection = [...this.selectedElementIds];
     const previousHistory = this.history.snapshot();
@@ -335,16 +357,21 @@ export class Editor implements EditorApi {
     try {
       mutation();
       if (selection) this.dependencies.runtimeStore.getState().setSelectedElementIds(selection);
-      await this.synchronizeDocument(this.design, this.selectedElementIds);
+      await this.synchronizeDocument(this.design, this.selectedElementIds, generation);
     } catch (error) {
       this.dependencies.designStore.getState().replaceDesign(previousDesign);
       this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
       this.history.restore(previousHistory);
-      try {
-        await this.dependencies.renderer.render(previousDesign);
-        this.dependencies.renderer.select(previousSelection);
-      } catch {
-        // 복구 렌더링 실패는 최초 오류를 대체하지 않는다.
+      if (this.isActiveGeneration(generation)) {
+        try {
+          await this.dependencies.renderer.render(previousDesign);
+          this.assertGeneration(generation);
+          this.dependencies.renderer.select(previousSelection);
+        } catch {
+          if (this.isActiveGeneration(generation)) {
+            this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+          }
+        }
       }
       throw error;
     }
@@ -359,21 +386,30 @@ export class Editor implements EditorApi {
     return result;
   }
 
-  private async synchronizeDocument(design: Design, selection: string[]): Promise<void> {
+  private async synchronizeDocument(
+    design: Design,
+    selection: string[],
+    generation: number,
+  ): Promise<void> {
     await this.dependencies.renderer.render(design);
+    this.assertGeneration(generation);
     this.dependencies.onDocumentChange(design);
+    this.assertGeneration(generation);
     this.dependencies.renderer.select(selection);
+    this.assertGeneration(generation);
   }
 
-  private async handleRendererEvent(event: EditorEvent): Promise<void> {
-    if (this.disposed) return;
+  private async handleRendererEvent(event: EditorEvent, eventGeneration: number): Promise<void> {
     if (event.type === 'selection:changed') {
-      this.dependencies.runtimeStore.getState().setSelectedElementIds(dedupeElementIds(event.elementIds));
+      await this.enqueue(async () => {
+        this.assertGeneration(eventGeneration);
+        this.dependencies.runtimeStore.getState().setSelectedElementIds(dedupeElementIds(event.elementIds));
+      });
       return;
     }
     if (event.type === 'element:transformed') {
       await this.enqueue(async () => {
-        this.assertActive();
+        this.assertGeneration(eventGeneration);
         await this.applyDocumentMutation(() => this.history.execute(new TransformElementCommand(
           this.dependencies.designStore,
           this.pageId,
@@ -383,10 +419,10 @@ export class Editor implements EditorApi {
       });
       return;
     }
-    const selected = this.findElement(event.elementId);
-    if (!selected || selected.type !== 'text') return;
     await this.enqueue(async () => {
-      this.assertActive();
+      this.assertGeneration(eventGeneration);
+      const selected = this.findElement(event.elementId);
+      if (!selected || selected.type !== 'text') return;
       await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
         this.dependencies.designStore,
         this.pageId,
@@ -406,5 +442,20 @@ export class Editor implements EditorApi {
 
   private assertActive(): void {
     if (this.disposed) throw new Error('이미 dispose된 Editor입니다.');
+  }
+
+  private activeGeneration(): number {
+    this.assertActive();
+    return this.generation;
+  }
+
+  private isActiveGeneration(generation: number): boolean {
+    return !this.disposed && this.generation === generation;
+  }
+
+  private assertGeneration(generation: number): void {
+    if (!this.isActiveGeneration(generation)) {
+      throw new Error('이미 dispose된 Editor입니다.');
+    }
   }
 }

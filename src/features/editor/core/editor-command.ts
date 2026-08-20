@@ -3,6 +3,18 @@ export interface EditorCommand {
   undo(): void;
 }
 
+function rethrowWithCompensationErrors(
+  originalError: unknown,
+  compensationErrors: unknown[],
+  operation: 'execute' | 'undo',
+): never {
+  if (compensationErrors.length === 0) throw originalError;
+  throw new AggregateError(
+    [originalError, ...compensationErrors],
+    `복합 명령 ${operation} 보상 중 오류가 발생했습니다.`,
+  );
+}
+
 export class CompositeEditorCommand implements EditorCommand {
   constructor(private readonly commands: readonly EditorCommand[]) {}
 
@@ -14,14 +26,15 @@ export class CompositeEditorCommand implements EditorCommand {
         executed.push(command);
       }
     } catch (error) {
+      const compensationErrors: unknown[] = [];
       for (const command of executed.reverse()) {
         try {
           command.undo();
-        } catch {
-          // 가능한 명령을 모두 보상한 뒤 원래 오류를 유지한다.
+        } catch (compensationError) {
+          compensationErrors.push(compensationError);
         }
       }
-      throw error;
+      rethrowWithCompensationErrors(error, compensationErrors, 'execute');
     }
   }
 
@@ -33,14 +46,15 @@ export class CompositeEditorCommand implements EditorCommand {
         undone.push(command);
       }
     } catch (error) {
+      const compensationErrors: unknown[] = [];
       for (const command of undone.reverse()) {
         try {
           command.execute();
-        } catch {
-          // 가능한 명령을 모두 복원한 뒤 원래 오류를 유지한다.
+        } catch (compensationError) {
+          compensationErrors.push(compensationError);
         }
       }
-      throw error;
+      rethrowWithCompensationErrors(error, compensationErrors, 'undo');
     }
   }
 }

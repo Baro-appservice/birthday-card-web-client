@@ -115,6 +115,44 @@ describe('CompositeEditorCommand', () => {
     expect(() => command.undo()).toThrow('first undo failed');
     expect(state).toEqual(['first', 'second']);
   });
+
+  it('execute 보상도 실패하면 원래 오류와 보상 오류를 함께 노출한다', () => {
+    const original = new Error('execute failed');
+    const compensation = new Error('execute compensation failed');
+    const command = new CompositeEditorCommand([
+      { execute: vi.fn(), undo: () => { throw compensation; } },
+      { execute: () => { throw original; }, undo: vi.fn() },
+    ]);
+
+    let caught: unknown;
+    try {
+      command.execute();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors).toEqual([original, compensation]);
+  });
+
+  it('undo 보상도 실패하면 원래 오류와 보상 오류를 함께 노출한다', () => {
+    const original = new Error('undo failed');
+    const compensation = new Error('undo compensation failed');
+    const command = new CompositeEditorCommand([
+      { execute: vi.fn(), undo: () => { throw original; } },
+      { execute: () => { throw compensation; }, undo: vi.fn() },
+    ]);
+
+    let caught: unknown;
+    try {
+      command.undo();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors).toEqual([original, compensation]);
+  });
 });
 
 describe('TransformElementCommand', () => {
