@@ -106,6 +106,58 @@ describe('BrowserAssetGateway', () => {
     await closeAndDelete(db);
   });
 
+  it('동일 asset의 동시 remove는 하나의 삭제 결과를 공유한다', async () => {
+    const db = await openTestDb();
+    const gateway = createGateway(db);
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:removed-once');
+    const asset = await gateway.upload(new File(['png'], 'birthday.png', { type: 'image/png' }));
+    await gateway.resolveUrl(asset.id);
+
+    await expect(Promise.all([gateway.remove(asset.id), gateway.remove(asset.id)])).resolves.toEqual([
+      undefined,
+      undefined,
+    ]);
+
+    expect(revokeObjectURL).toHaveBeenCalledOnce();
+    gateway.dispose();
+    await closeAndDelete(db);
+  });
+
+  it('삭제 transaction 실패 뒤에는 in-flight entry를 버리고 재시도할 수 있다', async () => {
+    const db = await openTestDb();
+    const gateway = createGateway(db);
+    const asset = await gateway.upload(new File(['png'], 'birthday.png', { type: 'image/png' }));
+    vi.spyOn(db, 'transaction').mockImplementationOnce(() => {
+      throw new Error('delete unavailable');
+    });
+
+    await expect(gateway.remove(asset.id)).rejects.toThrow('Asset 저장소를 쓸 수 없습니다.');
+    await expect(gateway.remove(asset.id)).resolves.toBeUndefined();
+
+    gateway.dispose();
+    await closeAndDelete(db);
+  });
+
+  it('resolve와 remove가 교차해도 늦게 생성된 URL을 한 번 해제한다', async () => {
+    const db = await openTestDb();
+    const gateway = createGateway(db);
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const asset = await gateway.upload(new File(['png'], 'birthday.png', { type: 'image/png' }));
+    let removing: Promise<void> | undefined;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+      removing = gateway.remove(asset.id);
+      return 'blob:crossed';
+    });
+
+    await expect(gateway.resolveUrl(asset.id)).resolves.toBe('blob:crossed');
+    await removing;
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:crossed');
+
+    gateway.dispose();
+    await closeAndDelete(db);
+  });
+
   it('디코드 실패 또는 0 크기 이미지의 Blob은 저장하지 않는다', async () => {
     const db = await openTestDb();
     const failingGateway = createGateway(db, {

@@ -81,23 +81,30 @@ export class SaveCoordinator {
 
   private async write(pending: PendingSave): Promise<void> {
     const operation = Promise.resolve().then(() => this.repository.save(this.cardId, pending.design));
-    this.writePromise = operation;
+    const settled = operation.then(
+      () => ({ status: 'fulfilled' as const }),
+      (error: unknown) => ({ status: 'rejected' as const, error }),
+    );
+    const writeCompletion = settled.then(() => undefined);
+    this.writePromise = writeCompletion;
+    const result = await settled;
     try {
-      await operation;
-      if (!this.disposed && pending.revision === this.revision && !this.pending) {
-        this.uiStore.getState().setSaveStatus('saved');
-        this.uiStore.getState().setError(null);
+      if (result.status === 'fulfilled') {
+        if (!this.disposed && pending.revision === this.revision && !this.pending) {
+          this.uiStore.getState().setSaveStatus('saved');
+          this.uiStore.getState().setError(null);
+        }
+        return;
       }
-    } catch (error) {
       if (!this.disposed && pending.revision === this.revision && !this.pending) {
         this.lastFailed = cloneDesign(pending.design);
         this.uiStore.getState().setSaveStatus('error');
         this.uiStore.getState().setError(
-          error instanceof Error ? error.message : '카드를 저장하지 못했습니다.',
+          result.error instanceof Error ? result.error.message : '카드를 저장하지 못했습니다.',
         );
       }
     } finally {
-      if (this.writePromise === operation) this.writePromise = null;
+      if (this.writePromise === writeCompletion) this.writePromise = null;
     }
   }
 

@@ -94,6 +94,7 @@ function isConstraintError(error: unknown): boolean {
 export class BrowserAssetGateway implements AssetGateway {
   private readonly objectUrls = new Map<string, string>();
   private readonly resolutionPromises = new Map<string, Promise<string>>();
+  private readonly removalPromises = new Map<string, Promise<void>>();
   private readonly removedAssetIds = new Set<string>();
   private disposed = false;
 
@@ -160,7 +161,21 @@ export class BrowserAssetGateway implements AssetGateway {
       throw new Error(`기본 Asset은 제거할 수 없습니다: ${assetId}`);
     }
     if (this.removedAssetIds.has(assetId)) return;
+    const pendingRemoval = this.removalPromises.get(assetId);
+    if (pendingRemoval) return pendingRemoval;
 
+    const removal = this.removeUploadedAsset(assetId);
+    this.removalPromises.set(assetId, removal);
+    try {
+      await removal;
+    } finally {
+      if (this.removalPromises.get(assetId) === removal) {
+        this.removalPromises.delete(assetId);
+      }
+    }
+  }
+
+  private async removeUploadedAsset(assetId: string): Promise<void> {
     const transaction = this.writeTransaction();
     const store = transaction.objectStore(ASSET_RECORDS_STORE);
     const record = await requestToPromise<AssetRecord | undefined>(store.get(assetId));

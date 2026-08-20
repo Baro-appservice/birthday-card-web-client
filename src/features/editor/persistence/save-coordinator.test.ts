@@ -98,6 +98,70 @@ describe('SaveCoordinator', () => {
     expect(save).toHaveBeenLastCalledWith('local-demo', second);
   });
 
+  it('A 실패 뒤 B timer가 이미 만료됐어도 B를 저장하고 saved로 끝낸다', async () => {
+    let rejectFirst: ((reason?: unknown) => void) | undefined;
+    const save = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectFirst = reject; }))
+      .mockResolvedValueOnce(undefined);
+    const uiStore = createEditorUiStore();
+    const coordinator = new SaveCoordinator('local-demo', createRepository(save), uiStore);
+    const first = createSampleDesign();
+    const second: Design = { ...first, pages: [{ ...first.pages[0], background: '#54233d' }] };
+
+    coordinator.schedule(first);
+    await vi.advanceTimersByTimeAsync(600);
+    coordinator.schedule(second);
+    await vi.advanceTimersByTimeAsync(600);
+    rejectFirst?.(new Error('A failed'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenLastCalledWith('local-demo', second);
+    expect(uiStore.getState().saveStatus).toBe('saved');
+  });
+
+  it('A 실패 중 explicit flush는 실패를 소비하고 최신 B를 저장한다', async () => {
+    let rejectFirst: ((reason?: unknown) => void) | undefined;
+    const save = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectFirst = reject; }))
+      .mockResolvedValueOnce(undefined);
+    const uiStore = createEditorUiStore();
+    const coordinator = new SaveCoordinator('local-demo', createRepository(save), uiStore);
+    const first = createSampleDesign();
+    const second: Design = { ...first, pages: [{ ...first.pages[0], background: '#54233d' }] };
+
+    coordinator.schedule(first);
+    await vi.advanceTimersByTimeAsync(600);
+    coordinator.schedule(second);
+    const flushing = coordinator.flush();
+    rejectFirst?.(new Error('A failed'));
+
+    await expect(flushing).resolves.toBeUndefined();
+    expect(save).toHaveBeenLastCalledWith('local-demo', second);
+    expect(uiStore.getState().saveStatus).toBe('saved');
+  });
+
+  it('A와 B가 연속 실패하면 마지막 B의 error 상태로 끝낸다', async () => {
+    let rejectFirst: ((reason?: unknown) => void) | undefined;
+    const save = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectFirst = reject; }))
+      .mockRejectedValueOnce(new Error('B failed'));
+    const uiStore = createEditorUiStore();
+    const coordinator = new SaveCoordinator('local-demo', createRepository(save), uiStore);
+    const first = createSampleDesign();
+    const second: Design = { ...first, pages: [{ ...first.pages[0], background: '#54233d' }] };
+
+    coordinator.schedule(first);
+    await vi.advanceTimersByTimeAsync(600);
+    coordinator.schedule(second);
+    await vi.advanceTimersByTimeAsync(600);
+    rejectFirst?.(new Error('A failed'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(save).toHaveBeenLastCalledWith('local-demo', second);
+    expect(uiStore.getState().saveStatus).toBe('error');
+    expect(uiStore.getState().error).toBe('B failed');
+  });
+
   it('예약 뒤 원본 Design을 변경해도 저장 snapshot은 변경되지 않는다', async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const coordinator = new SaveCoordinator(
