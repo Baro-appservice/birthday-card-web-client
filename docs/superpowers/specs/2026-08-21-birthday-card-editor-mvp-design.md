@@ -139,13 +139,22 @@ interface EditorRenderer {
 Design 문서의 저장 경계다.
 
 ```ts
+type DesignLoadResult =
+  | { status: 'empty' }
+  | { status: 'loaded'; design: Design }
+  | {
+      status: 'recoverable';
+      reason: 'corrupt' | 'unsupported-version';
+      backup: Design | null;
+    };
+
 interface DesignRepository {
-  load(cardId: string): Promise<Design | null>;
+  load(cardId: string): Promise<DesignLoadResult>;
   save(cardId: string, design: Design): Promise<void>;
 }
 ```
 
-현재 구현은 `IndexedDbDesignRepository`다. 추후 `ApiDesignRepository`로 교체하더라도 Editor Core는 변경하지 않는다.
+현재 구현은 `IndexedDbDesignRepository`다. 현재 문서가 손상됐거나 지원하지 않는 버전이면 조용히 백업을 대신 반환하지 않고 `recoverable` 결과를 반환해 UI가 복구 여부를 사용자에게 알리게 한다. 추후 `ApiDesignRepository`로 교체하더라도 Editor Core는 변경하지 않는다.
 
 ### 6.3 AssetGateway
 
