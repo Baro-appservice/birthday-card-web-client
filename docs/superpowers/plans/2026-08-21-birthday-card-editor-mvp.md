@@ -697,12 +697,17 @@ async function corruptCurrentRecord(db: IDBDatabase, cardId: string) {
   const transaction = db.transaction('design-records', 'readwrite');
   const store = transaction.objectStore('design-records');
   const record = await requestToPromise<DesignRecord>(store.get(cardId));
-  store.put({ ...record, current: { version: 999, broken: true } });
+  store.put({
+    ...record,
+    current: { version: 1, width: 'broken', height: 1350, pages: [] },
+  });
   await transactionDone(transaction);
 }
 ```
 
 Asset 테스트는 `builtin:birthday-photo`가 `/assets/birthday-placeholder.svg`로 해석되는지, PNG 업로드가 IndexedDB에 저장되고 `assetId`를 반환하는지, `text/plain`과 10MB 초과 파일을 거부하는지 검증한다.
+
+별도 테스트에서 current를 `{ version: 999 }`로 기록해 `reason: 'unsupported-version'`과 정상 backup이 반환되는지 검증한다.
 
 - [ ] **Step 2: 실패를 확인한다**
 
@@ -963,7 +968,7 @@ export function createEditorTestKit(options: {
     assetGateway,
     exporter,
     idGenerator: () => 'test-element-id',
-    onDocumentChange: saveCoordinator.schedule,
+    onDocumentChange: (design) => saveCoordinator.schedule(design),
   });
   const value: EditorContextValue = {
     editor,
@@ -1301,6 +1306,7 @@ test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', 
   await page.getByRole('textbox', { name: '선택한 텍스트 내용' }).fill('올해도 제 생일을 축하해 주세요!');
 
   const fileInput = page.getByLabel('사진 파일 선택');
+  await page.getByRole('button', { name: '사진' }).click();
   await fileInput.setInputFiles({
     name: 'birthday.png',
     mimeType: 'image/png',
@@ -1341,8 +1347,10 @@ await expect(page.getByText('저장됨')).toBeVisible();
 const movedX = await readSavedElementX(page, 'local-demo', 'title');
 expect(movedX).toBeGreaterThan(180);
 await page.getByRole('button', { name: '실행 취소' }).click();
+await expect(page.getByText('저장됨')).toBeVisible();
 expect(await readSavedElementX(page, 'local-demo', 'title')).toBe(180);
 await page.getByRole('button', { name: '다시 실행' }).click();
+await expect(page.getByText('저장됨')).toBeVisible();
 expect(await readSavedElementX(page, 'local-demo', 'title')).toBe(movedX);
 ```
 
