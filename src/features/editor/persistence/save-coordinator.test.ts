@@ -73,6 +73,31 @@ describe('SaveCoordinator', () => {
     expect(save).toHaveBeenLastCalledWith('local-demo', second);
   });
 
+  it('in-flight 저장 완료는 새 변경의 600ms trailing debounce를 앞당기지 않는다', async () => {
+    let finishFirst: (() => void) | undefined;
+    const save = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { finishFirst = resolve; }))
+      .mockResolvedValueOnce(undefined);
+    const coordinator = new SaveCoordinator(
+      'local-demo',
+      createRepository(save),
+      createEditorUiStore(),
+    );
+    const first = createSampleDesign();
+    const second: Design = { ...first, pages: [{ ...first.pages[0], background: '#252525' }] };
+
+    coordinator.schedule(first);
+    await vi.advanceTimersByTimeAsync(600);
+    coordinator.schedule(second);
+    finishFirst?.();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(599);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(save).toHaveBeenLastCalledWith('local-demo', second);
+  });
+
   it('예약 뒤 원본 Design을 변경해도 저장 snapshot은 변경되지 않는다', async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const coordinator = new SaveCoordinator(

@@ -37,7 +37,7 @@ export class SaveCoordinator {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this.flush();
+      void this.flushScheduled();
     }, SAVE_DEBOUNCE_MS);
   }
 
@@ -54,7 +54,6 @@ export class SaveCoordinator {
       if (!pending) return;
       this.pending = null;
       await this.write(pending);
-      if (!this.pending) return;
     }
   }
 
@@ -81,7 +80,7 @@ export class SaveCoordinator {
   }
 
   private async write(pending: PendingSave): Promise<void> {
-    const operation = this.repository.save(this.cardId, pending.design);
+    const operation = Promise.resolve().then(() => this.repository.save(this.cardId, pending.design));
     this.writePromise = operation;
     try {
       await operation;
@@ -100,5 +99,14 @@ export class SaveCoordinator {
     } finally {
       if (this.writePromise === operation) this.writePromise = null;
     }
+  }
+
+  private async flushScheduled(): Promise<void> {
+    if (this.disposed) return;
+    if (this.writePromise) await this.writePromise;
+    if (this.disposed || !this.pending) return;
+    const pending = this.pending;
+    this.pending = null;
+    await this.write(pending);
   }
 }

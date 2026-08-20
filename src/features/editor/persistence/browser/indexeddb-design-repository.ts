@@ -73,10 +73,16 @@ export class IndexedDbDesignRepository implements DesignRepository {
 
     const store = transaction.objectStore(DESIGN_RECORDS_STORE);
     const previous = await requestToPromise<DesignRecord | undefined>(store.get(cardId));
+    const previousCurrent = designSchema.safeParse(previous?.current);
+    const previousBackup = designSchema.safeParse(previous?.backup);
     store.put({
       cardId,
       current,
-      backup: previous ? previous.current : null,
+      backup: previousCurrent.success
+        ? cloneDesign(previousCurrent.data)
+        : previousBackup.success
+          ? cloneDesign(previousBackup.data)
+          : null,
       updatedAt: Date.now(),
     } satisfies DesignRecord);
     await transactionDone(transaction);
