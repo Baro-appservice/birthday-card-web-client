@@ -85,6 +85,34 @@ describe('design operations', () => {
     ]);
   });
 
+  it.each([-1, 2, 1.5])('유효하지 않은 레이어 위치 %s를 거부한다', (targetIndex) => {
+    const page = createPage([createShape('back'), createShape('front')]);
+
+    expect(() => moveElement(page, 'back', targetIndex)).toThrow(
+      `유효하지 않은 레이어 위치입니다: ${targetIndex}`,
+    );
+  });
+
+  it('존재하지 않는 요소는 이동할 수 없다', () => {
+    const page = createPage([createShape('back'), createShape('front')]);
+
+    expect(() => moveElement(page, 'missing', 0)).toThrow(
+      '존재하지 않는 요소입니다: missing',
+    );
+  });
+
+  it.each([
+    ['첫 요소를 첫 위치로', 'back', 0, ['back', 'front']],
+    ['마지막 요소를 마지막 위치로', 'front', 1, ['back', 'front']],
+  ])('%s 이동은 경계에서 순서를 유지한다', (_description, elementId, targetIndex, expected) => {
+    const page = createPage([createShape('back'), createShape('front')]);
+
+    const result = moveElement(page, elementId, targetIndex);
+
+    expect(result.elements.map((element) => element.id)).toEqual(expected);
+    expect(page.elements.map((element) => element.id)).toEqual(['back', 'front']);
+  });
+
   it('배경을 변경하고 원본 페이지를 바꾸지 않는다', () => {
     const page = createPage([]);
 

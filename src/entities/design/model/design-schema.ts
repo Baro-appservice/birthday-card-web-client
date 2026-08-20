@@ -26,10 +26,18 @@ export const textElementSchema = baseElementSchema
   })
   .strict();
 
+const browserUrlScheme = /^(blob|data|https?):/i;
+
 export const imageElementSchema = baseElementSchema
   .extend({
     type: z.literal('image'),
-    assetId: z.string().min(1),
+    assetId: z
+      .string()
+      .trim()
+      .min(1)
+      .refine((assetId) => !browserUrlScheme.test(assetId), {
+        message: '브라우저 URL은 assetId로 저장할 수 없습니다.',
+      }),
   })
   .strict();
 
