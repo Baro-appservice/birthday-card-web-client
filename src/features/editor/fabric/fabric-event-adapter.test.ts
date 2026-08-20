@@ -63,6 +63,24 @@ describe('FabricEventAdapter', () => {
     adapter.dispose();
   });
 
+  it('selection:updated의 deselected delta 대신 제거 뒤 현재 전체 선택 집합을 전달한다', () => {
+    const canvas = createCanvas();
+    const received: string[][] = [];
+    const adapter = new FabricEventAdapter(canvas as unknown as Canvas, (event) => {
+      if (event.type === 'selection:changed') received.push(event.elementIds);
+    });
+    const title = element('title');
+    const name = element('name');
+
+    canvas.setActiveObjects([title, name]);
+    canvas.fire('selection:created', { selected: [title, name] });
+    canvas.setActiveObjects([title]);
+    canvas.fire('selection:updated', { selected: [], deselected: [name] });
+
+    expect(received).toEqual([['title', 'name'], ['title']]);
+    adapter.dispose();
+  });
+
   it('변형 전 snapshot과 수정 후 snapshot으로 transformed를 정확히 한 번 전달한다', () => {
     const canvas = createCanvas();
     const received: unknown[] = [];

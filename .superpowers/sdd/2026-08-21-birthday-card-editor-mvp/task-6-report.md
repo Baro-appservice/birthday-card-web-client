@@ -62,3 +62,39 @@ rtk git diff --check
 - 전체: 14 files, 128 tests passed.
 - build passed. 최초 sandbox build의 Turbopack local port bind 제한은 권한 확장 재실행으로 해소됐다.
 - diff check passed.
+
+---
+
+## 리뷰 수정 2차
+
+### 추가 회귀 범위
+
+- `fabric-event-adapter.test.ts`에 Fabric 7.4 removal delta 시나리오를 추가했다. active objects가 `[title, name]`에서 `[title]`로 바뀌고 event payload가 `selected: []`, `deselected: [name]`만 제공해도 `selection:changed`는 payload-derived 값이 아니라 전체 현재 상태 `['title']`를 emit하는지 확인한다.
+- 기존 add delta 시나리오는 유지했다.
+
+### RED/GREEN 증거
+
+코드 변경 전 새 회귀 테스트를 먼저 추가하고 실행했다.
+
+```bash
+rtk npm test -- src/features/editor/fabric/fabric-event-adapter.test.ts
+```
+
+결과: 1 file, 8 tests passed. 이 test-only round에서는 1차 수정의 `canvas.getActiveObjects()` 구현이 이미 올바른 removal 동작을 제공했으므로 production defect가 재현되지 않았고 코드 수정은 하지 않았다.
+
+최종 검증 명령:
+
+```bash
+rtk npm test -- src/features/editor/fabric
+rtk npm run typecheck
+rtk npm run lint
+rtk npm test
+rtk git diff --check
+```
+
+결과:
+
+- Fabric: 4 files, 22 tests passed.
+- typecheck와 lint passed.
+- 전체: 14 files, 129 tests passed.
+- diff check passed.
