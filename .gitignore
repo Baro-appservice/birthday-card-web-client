@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# production
+build/
+
+# local environment
+.env*
+!.env.example
+
+# test artifacts
+coverage/
+playwright-report/
+test-results/
+
+# logs
+*.log
+
+# operating system and editor files
+.DS_Store
+.idea/
+.vscode/
+
+# local brainstorming artifacts
+.superpowers/
