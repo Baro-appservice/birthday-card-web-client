@@ -224,6 +224,7 @@ describe('Editor', () => {
 
     await expect(kit.editor.addImage(file)).rejects.toThrow('upload failed');
     expect(selectedElement(kit.designStore.getState().design, 'created-element')).toBeUndefined();
+    expect(kit.assetGateway.remove).not.toHaveBeenCalled();
 
     await kit.editor.addImage(file);
     expect(selectedElement(kit.designStore.getState().design, 'created-element')).toMatchObject({
@@ -269,6 +270,55 @@ describe('Editor', () => {
     });
     expect(kit.assetGateway.remove).toHaveBeenCalledWith('asset-uploaded');
   });
+
+  it.each(['add', 'replace'] as const)(
+    '%s 이미지의 보상 제거도 실패하면 transaction과 cleanup 오류를 함께 노출한다',
+    async (operation) => {
+      const kit = createEditorTestKit();
+      const transactionError = new Error('transaction failed');
+      const cleanupError = new Error('cleanup failed');
+      vi.mocked(kit.renderer.render).mockRejectedValueOnce(transactionError);
+      vi.mocked(kit.assetGateway.remove).mockRejectedValueOnce(cleanupError);
+      if (operation === 'replace') kit.runtimeStore.getState().setSelectedElementIds(['photo']);
+      const file = new File(['image'], 'birthday.png', { type: 'image/png' });
+
+      let caught: unknown;
+      try {
+        if (operation === 'add') await kit.editor.addImage(file);
+        else await kit.editor.replaceSelectedImage(file);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(AggregateError);
+      expect((caught as AggregateError).errors).toEqual([transactionError, cleanupError]);
+      expect((caught as Error).message).toContain('asset-uploaded');
+      expect((caught as Error).message).toContain('보상');
+      expect(kit.assetGateway.remove).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(['add', 'replace'] as const)(
+    '%s 이미지의 보상 제거가 성공하면 원래 transaction 오류 identity를 유지한다',
+    async (operation) => {
+      const kit = createEditorTestKit();
+      const transactionError = new Error('transaction failed');
+      vi.mocked(kit.renderer.render).mockRejectedValueOnce(transactionError);
+      if (operation === 'replace') kit.runtimeStore.getState().setSelectedElementIds(['photo']);
+      const file = new File(['image'], 'birthday.png', { type: 'image/png' });
+
+      let caught: unknown;
+      try {
+        if (operation === 'add') await kit.editor.addImage(file);
+        else await kit.editor.replaceSelectedImage(file);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBe(transactionError);
+      expect(kit.assetGateway.remove).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('업로드부터 export까지 public 호출 순서를 하나의 큐로 보장한다', async () => {
     const kit = createEditorTestKit();

@@ -105,3 +105,21 @@
 - `rtk npm run typecheck`: PASS
 - `rtk npm test`: PASS, 6 files / 72 tests
 - `rtk git diff --check`: PASS
+
+## 승인 리뷰 마지막 대응 (Important 1)
+
+### 적용 정책
+
+- 업로드가 성공한 뒤 문서 transaction이 실패하면 add/replace 이미지 모두 같은 보상 helper로 새 asset을 한 번 제거한다.
+- 제거가 성공하면 원래 transaction 오류 객체를 그대로 throw한다. 제거도 실패하면 asset ID와 보상 실패 맥락을 포함한 `AggregateError`로 원래 오류와 cleanup 오류를 함께 노출한다.
+- upload 자체가 실패한 경우에는 아직 생성된 asset이 없으므로 remove를 호출하지 않는다.
+
+### RED → GREEN 기록
+
+- RED 10: addImage와 replaceSelectedImage에서 remove 실패가 조용히 무시되고 원래 transaction 오류만 반환되는 상태를 재현했다.
+- GREEN 10: `rethrowAfterUploadedAssetCompensation` 공통 helper로 원래 오류 identity 및 두 오류를 가진 `AggregateError.errors`를 구분해 보존했다.
+
+### 승인 리뷰 검증
+
+- focused Editor/Command test: PASS, 44 tests
+- `rtk npm run typecheck`: PASS

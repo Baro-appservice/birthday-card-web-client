@@ -180,8 +180,7 @@ export class Editor implements EditorApi {
           },
         )), [id]);
       } catch (error) {
-        await this.removeUploadedAsset(asset.id);
-        throw error;
+        await this.rethrowAfterUploadedAssetCompensation(asset.id, error);
       }
     });
   }
@@ -201,8 +200,7 @@ export class Editor implements EditorApi {
           { assetId: asset.id },
         )));
       } catch (error) {
-        await this.removeUploadedAsset(asset.id);
-        throw error;
+        await this.rethrowAfterUploadedAssetCompensation(asset.id, error);
       }
     });
   }
@@ -430,12 +428,19 @@ export class Editor implements EditorApi {
     });
   }
 
-  private async removeUploadedAsset(assetId: string): Promise<void> {
+  private async rethrowAfterUploadedAssetCompensation(
+    assetId: string,
+    transactionError: unknown,
+  ): Promise<never> {
     try {
       await this.dependencies.assetGateway.remove(assetId);
-    } catch {
-      // 보상 실패가 원래 명령 실패를 가리지 않게 한다.
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [transactionError, cleanupError],
+        `업로드 asset ${assetId} 보상 제거에 실패했습니다.`,
+      );
     }
+    throw transactionError;
   }
 
   private assertActive(): void {
