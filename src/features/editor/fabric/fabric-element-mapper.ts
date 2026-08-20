@@ -46,7 +46,7 @@ function commonOptions(element: DesignElement) {
 }
 
 function mapText(element: Extract<DesignElement, { type: 'text' }>): FabricObject {
-  return new Textbox(element.text, {
+  const textbox = new Textbox(element.text, {
     ...commonOptions(element),
     width: element.width,
     fontFamily: element.fontFamily,
@@ -55,6 +55,11 @@ function mapText(element: Extract<DesignElement, { type: 'text' }>): FabricObjec
     fill: element.color,
     textAlign: element.textAlign,
   });
+  textbox.set({
+    scaleX: element.width / positiveOr(textbox.width, element.width),
+    scaleY: element.height / positiveOr(textbox.height, element.height),
+  });
+  return textbox;
 }
 
 function mapShape(element: Extract<DesignElement, { type: 'shape' }>): FabricObject {

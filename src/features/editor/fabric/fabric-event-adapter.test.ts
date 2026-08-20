@@ -1,4 +1,4 @@
-import { FabricObject, type Canvas } from 'fabric';
+import { ActiveSelection, FabricObject, type Canvas } from 'fabric';
 import { describe, expect, it, vi } from 'vitest';
 
 import { FabricEventAdapter } from './fabric-event-adapter';
@@ -8,11 +8,14 @@ type Handler = (event: Record<string, unknown>) => void;
 
 function createCanvas() {
   const listeners = new Map<string, Handler>();
+  let activeObjects: FabricObject[] = [];
   return {
     on: vi.fn((event: string, listener: Handler) => { listeners.set(event, listener); }),
     off: vi.fn((event: string, listener: Handler) => {
       if (listeners.get(event) === listener) listeners.delete(event);
     }),
+    getActiveObjects: vi.fn(() => activeObjects),
+    setActiveObjects: (objects: FabricObject[]) => { activeObjects = objects; },
     fire(event: string, payload: Record<string, unknown> = {}) { listeners.get(event)?.(payload); },
   };
 }
@@ -31,11 +34,32 @@ describe('FabricEventAdapter', () => {
     const title = element('title');
     const name = element('name');
 
+    canvas.setActiveObjects([title, name, title]);
     canvas.fire('selection:created', { selected: [title, name, title] });
-    canvas.fire('selection:updated', { selected: [title, name] });
+    canvas.setActiveObjects([title, name]);
+    canvas.fire('selection:updated', { selected: [] });
+    canvas.setActiveObjects([]);
     canvas.fire('selection:cleared');
 
     expect(received).toEqual([['title', 'name'], []]);
+    adapter.dispose();
+  });
+
+  it('selection:updated의 delta가 아니라 현재 전체 선택 집합을 전달한다', () => {
+    const canvas = createCanvas();
+    const received: string[][] = [];
+    const adapter = new FabricEventAdapter(canvas as unknown as Canvas, (event) => {
+      if (event.type === 'selection:changed') received.push(event.elementIds);
+    });
+    const title = element('title');
+    const name = element('name');
+
+    canvas.setActiveObjects([title]);
+    canvas.fire('selection:created', { selected: [title] });
+    canvas.setActiveObjects([title, name]);
+    canvas.fire('selection:updated', { selected: [name], deselected: [] });
+
+    expect(received).toEqual([['title'], ['title', 'name']]);
     adapter.dispose();
   });
 
@@ -65,6 +89,19 @@ describe('FabricEventAdapter', () => {
 
     canvas.fire('mouse:down', { target: new FabricObject() });
     canvas.fire('object:modified', { target: new FabricObject() });
+
+    expect(received).not.toHaveBeenCalled();
+    adapter.dispose();
+  });
+
+  it('metadata가 없는 ActiveSelection의 transform은 Domain event로 바꾸지 않는다', () => {
+    const canvas = createCanvas();
+    const received = vi.fn();
+    const adapter = new FabricEventAdapter(canvas as unknown as Canvas, received);
+    const group = new ActiveSelection([element('title'), element('name')]);
+
+    canvas.fire('mouse:down', { target: group });
+    canvas.fire('object:modified', { target: group });
 
     expect(received).not.toHaveBeenCalled();
     adapter.dispose();

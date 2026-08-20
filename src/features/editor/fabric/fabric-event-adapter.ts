@@ -27,8 +27,8 @@ export class FabricEventAdapter {
   private disposed = false;
 
   private readonly handlers = {
-    selectionCreated: (event: FabricEvent) => this.emitSelection(event.selected),
-    selectionUpdated: (event: FabricEvent) => this.emitSelection(event.selected),
+    selectionCreated: () => this.emitSelection(this.canvas.getActiveObjects()),
+    selectionUpdated: () => this.emitSelection(this.canvas.getActiveObjects()),
     selectionCleared: () => this.emitSelection([]),
     mouseDown: (event: FabricEvent) => this.captureTransform(event.target),
     objectMoving: (event: FabricEvent) => this.captureTransform(event.target),

@@ -19,3 +19,46 @@
 - `git diff --check` — passed
 
 초기 sandbox build는 Turbopack CSS 처리의 local port bind 제한으로 실패했으며, 동일 명령을 권한 확장으로 재실행해 성공을 확인했다.
+
+---
+
+## 리뷰 수정 1차
+
+### 반영 내용
+
+- `selection:created`와 `selection:updated`는 Fabric 7.4의 delta payload를 사용하지 않고 `canvas.getActiveObjects()`의 전체 선택 순서를 읽는다. 중복 ID는 순서를 유지해 제거한다.
+- 복수 선택 `ActiveSelection`에는 이동·X/Y 크기 변경·회전 lock을 명시적으로 설정했다. 따라서 다중 선택은 delete/layer 조작에는 남아 있으나 Domain 단일 transform event를 만들 수 없다.
+- Textbox 생성 뒤 실제 Fabric base `height`와 `width`를 기준으로 scale을 보정해, Domain의 명시적 width/height가 `readTransform()`을 왕복해도 보존된다. 텍스트 편집 뒤 재매핑도 같은 계약을 따른다.
+- Fabric-aware fake를 사용해 renderer의 stale image generation, 선택 복원/없는 ID, mount·subscribe·unsubscribe·dispose teardown을 검증했다.
+- StaticCanvas fake로 exporter의 1080×1350/options literal, `toBlob()` null/error, 항상 dispose를 검증했다.
+
+### RED 증거
+
+실행:
+
+```bash
+rtk npm test -- src/features/editor/fabric/fabric-event-adapter.test.ts src/features/editor/fabric/fabric-element-mapper.test.ts src/features/editor/fabric/fabric-editor-renderer.test.ts
+```
+
+결과: 3 files 중 3 failed, 17 tests 중 4 failed.
+
+- `selection:updated`가 `['title', 'name']` 대신 delta `['name']`를 emit했다.
+- 샘플 title의 `readTransform()` height가 Domain `130` 대신 Textbox base `81.36`이었다.
+- renderer public tests 두 개는 sample image를 실제 jsdom image loader로 통과시켜 timeout이 났다. Canvas를 검증하지 않는 text-only fixture로 바꿔 Fabric-aware fake 경계를 유지했다.
+
+### GREEN 증거
+
+```bash
+rtk npm test -- src/features/editor/fabric
+rtk npm run typecheck
+rtk npm run lint
+rtk npm test
+rtk npm run build
+rtk git diff --check
+```
+
+- `fabric-event-adapter.test.ts`, `fabric-element-mapper.test.ts`, `fabric-editor-renderer.test.ts`, `fabric-design-exporter.test.ts`: 4 files, 21 tests passed.
+- typecheck와 lint passed.
+- 전체: 14 files, 128 tests passed.
+- build passed. 최초 sandbox build의 Turbopack local port bind 제한은 권한 확장 재실행으로 해소됐다.
+- diff check passed.

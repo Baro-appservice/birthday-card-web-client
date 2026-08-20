@@ -1,4 +1,4 @@
-import type { DesignElement } from '@/entities/design';
+import { createSampleDesign, type DesignElement } from '@/entities/design';
 import type { AssetGateway } from '@/features/editor/core/ports';
 import { Ellipse, FabricImage, Rect, Textbox } from 'fabric';
 import { describe, expect, it, vi } from 'vitest';
@@ -41,6 +41,21 @@ describe('fabric element mapper', () => {
       fontWeight: 700, fill: '#b52262', textAlign: 'center',
     });
     expect(getElementId(object)).toBe('title');
+  });
+
+  it('샘플 title은 Textbox base height와 무관하게 Domain transform을 round-trip한다', async () => {
+    const title = createSampleDesign().pages[0].elements.find((element) => element.id === 'title');
+    if (!title || title.type !== 'text') throw new Error('샘플 title이 없습니다.');
+
+    const mapped = await elementToFabricObject(title, assetGateway);
+    const editedAndRemapped = await elementToFabricObject({ ...title, text: '새로운 생일 문구' }, assetGateway);
+
+    expect(readTransform(mapped)).toEqual({
+      x: title.x, y: title.y, width: title.width, height: title.height, rotation: title.rotation,
+    });
+    expect(readTransform(editedAndRemapped)).toEqual({
+      x: title.x, y: title.y, width: title.width, height: title.height, rotation: title.rotation,
+    });
   });
 
   it.each([

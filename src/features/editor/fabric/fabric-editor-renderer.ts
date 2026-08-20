@@ -69,7 +69,14 @@ export class FabricEditorRenderer implements EditorRenderer {
     if (objects.length === 1) {
       canvas.setActiveObject(objects[0]);
     } else if (objects.length > 1) {
-      canvas.setActiveObject(new ActiveSelection(objects, { canvas }));
+      canvas.setActiveObject(new ActiveSelection(objects, {
+        canvas,
+        lockMovementX: true,
+        lockMovementY: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        lockRotation: true,
+      }));
     }
     canvas.requestRenderAll();
   }
