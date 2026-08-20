@@ -44,3 +44,20 @@ rtk npm test                                                      # 4 files, 31 
 
 - 현재 MVP는 단일 페이지 편집이므로 Runtime Store의 기본 `activePageId`는 `page-1`이다. Design Store actions는 pageId를 명시적으로 받아 향후 다중 페이지 UI가 추가돼도 document 연산의 대상이 모호해지지 않게 했다.
 - Port는 계약만 정의한다. IndexedDB, Asset, Fabric, PNG 구현체는 이후 Task에서 Port를 통해 주입한다.
+
+## 후속 수정: zoom 입력 안정성
+
+리뷰에서 `Math.min/Math.max`가 `NaN`을 그대로 반환해 Runtime Store에 유한하지 않은 zoom이 남는 문제가 확인됐다.
+
+- RED: `setZoom(Number.NaN)` 뒤 직전 유효값 `1.5`를 기대하는 focused test가 `NaN`을 받아 실패했다.
+- GREEN: `NaN`일 때 현재 zoom을 유지하도록 `clampZoom()`에 현재 값을 전달했다. `Infinity`와 `-Infinity`는 기존 clamp 의미를 유지해 각각 `2`, `0.25`가 된다.
+- 테스트는 기존 일반 상·하한과 새 `NaN`, 양의 무한대, 음의 무한대 입력을 모두 실제 Store 상태로 검증한다.
+
+후속 검증:
+
+```text
+rtk npm test -- src/features/editor/model/editor-stores.test.ts  # 1 file, 7 tests PASS
+rtk npm run lint                                                  # PASS
+rtk npm run typecheck                                             # PASS
+rtk npm test                                                      # 전체 PASS
+```

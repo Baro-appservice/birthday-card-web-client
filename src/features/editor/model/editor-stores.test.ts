@@ -96,6 +96,20 @@ describe('Editor Runtime Store', () => {
     store.getState().setZoom(0.1);
     expect(store.getState().zoom).toBe(0.25);
   });
+
+  it('NaN은 현재 zoom을 유지하고 양·음의 무한대는 경계값으로 제한한다', () => {
+    const store = createEditorRuntimeStore();
+
+    store.getState().setZoom(1.5);
+    store.getState().setZoom(Number.NaN);
+    expect(store.getState().zoom).toBe(1.5);
+
+    store.getState().setZoom(Infinity);
+    expect(store.getState().zoom).toBe(2);
+
+    store.getState().setZoom(-Infinity);
+    expect(store.getState().zoom).toBe(0.25);
+  });
 });
 
 describe('Editor UI Store', () => {

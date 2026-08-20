@@ -20,7 +20,8 @@ export type EditorRuntimeStore = StoreApi<EditorRuntimeState>;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2;
 
-function clampZoom(zoom: number): number {
+function clampZoom(zoom: number, currentZoom: number): number {
+  if (Number.isNaN(zoom)) return currentZoom;
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 }
 
@@ -33,7 +34,7 @@ export function createEditorRuntimeStore(): EditorRuntimeStore {
     canvasStatus: 'idle',
     setSelectedElementIds: (selectedElementIds) => set({ selectedElementIds }),
     setActivePageId: (activePageId) => set({ activePageId }),
-    setZoom: (zoom) => set({ zoom: clampZoom(zoom) }),
+    setZoom: (zoom) => set((state) => ({ zoom: clampZoom(zoom, state.zoom) })),
     setIsInteracting: (isInteracting) => set({ isInteracting }),
     setCanvasStatus: (canvasStatus) => set({ canvasStatus }),
   }));
