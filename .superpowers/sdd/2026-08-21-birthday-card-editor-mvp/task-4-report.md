@@ -37,3 +37,26 @@
 
 - Renderer event는 Port 계약상 동기 콜백이므로 이벤트 처리 중 render 오류는 호출자에게 반환할 수 없다. unhandled rejection을 막고 Runtime의 `canvasStatus`를 `error`로 전환하도록 처리했다.
 - `EditorApi` 계약은 brief와 동일하게 유지했다. 구독 해제와 renderer 정리를 위한 `dispose()`는 concrete `Editor`에만 제공하므로, 이후 Provider 조립 단계에서 unmount 시 이를 호출해야 한다.
+
+## 독립 리뷰 대응 (Important 1–3, Minor 4)
+
+### 적용 정책
+
+- 문서 변경은 **Command 실행 → renderer.render → onDocumentChange**가 모두 성공할 때만 확정한다. 실패하면 Design, selection, History stack snapshot을 복구하고, 복구된 Design을 renderer에 최선으로 재반영한 뒤 최초 오류를 유지한다.
+- 모든 비동기 public 작업은 하나의 operation queue를 통과한다. upload와 export도 큐에 포함하며, upload 이후 dispose·명령·render·notification 실패 시 새 asset을 제거하는 보상 작업을 실행한다.
+- History는 명령 실행 성공 전 stack을 이동하지 않는다. Composite는 실행/undo 중간 실패 시 완료된 부분을 역순 보상한다.
+- Renderer selection은 입력 순서를 유지하며 중복을 제거한다. 같은 Editor 인스턴스의 두 번째 mount는 명확히 거부한다.
+
+### RED → GREEN 기록
+
+- RED 4: render 또는 동기 `onDocumentChange` 실패 뒤 새 요소가 남고 History도 undo 가능 상태로 남는 것을 재현했다. renderer transform/text 이벤트도 실패 후 Domain 변경이 남았다.
+- RED 5: undo/redo throw가 stack을 pop한 뒤 기록을 유실하고, Composite와 중복 selection 삭제가 partial mutation을 남기는 것을 재현했다.
+- RED 6: upload가 queue 밖에서 실행되어 export가 선행하고, 실패·dispose 뒤 새 asset이 제거되지 않으며, 두 번째 mount가 허용되는 것을 재현했다.
+- GREEN 4: History snapshot과 Editor 문서 트랜잭션, 복구 렌더링, 이벤트 error 상태 기록을 추가했다.
+- GREEN 5: peek-then-move History, Composite 역보상, selection dedupe를 적용했다.
+- GREEN 6: upload→command→render→notification과 export를 단일 generic queue에 넣고 업로드 asset 보상 및 중복 mount 방어를 적용했다.
+
+### 리뷰 대응 검증
+
+- focused Editor/Command test: PASS, 28 tests
+- `rtk npm run typecheck`: PASS

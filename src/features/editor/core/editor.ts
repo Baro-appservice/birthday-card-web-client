@@ -19,7 +19,7 @@ import { DeleteElementCommand } from '../commands/delete-element-command';
 import { ReorderElementCommand } from '../commands/reorder-element-command';
 import { TransformElementCommand } from '../commands/transform-element-command';
 import { UpdateElementCommand } from '../commands/update-element-command';
-import { CompositeEditorCommand, type EditorCommand } from './editor-command';
+import { CompositeEditorCommand } from './editor-command';
 import { EditorHistory } from './editor-history';
 
 export interface EditorDependencies {
@@ -88,10 +88,15 @@ function createShapeElement(id: string, shape: ShapeElement['shape']): ShapeElem
   };
 }
 
+function dedupeElementIds(elementIds: readonly string[]): string[] {
+  return [...new Set(elementIds)];
+}
+
 export class Editor implements EditorApi {
   private readonly history = new EditorHistory();
   private readonly unsubscribe: () => void;
   private operationChain: Promise<void> = Promise.resolve();
+  private mounted = false;
   private disposed = false;
 
   constructor(private readonly dependencies: EditorDependencies) {
@@ -105,12 +110,15 @@ export class Editor implements EditorApi {
   async mount(canvas: HTMLCanvasElement): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
-      this.dependencies.renderer.mount(canvas);
+      if (this.mounted) throw new Error('이미 mount된 Editor입니다.');
+      this.mounted = true;
       try {
+        this.dependencies.renderer.mount(canvas);
         await this.dependencies.renderer.render(this.design);
         this.dependencies.renderer.select(this.selectedElementIds);
         this.dependencies.runtimeStore.getState().setCanvasStatus('ready');
       } catch (error) {
+        this.mounted = false;
         this.dependencies.runtimeStore.getState().setCanvasStatus('error');
         throw error;
       }
@@ -118,72 +126,105 @@ export class Editor implements EditorApi {
   }
 
   async addText(): Promise<void> {
-    const id = this.dependencies.idGenerator();
-    await this.execute(new AddElementCommand(this.dependencies.designStore, this.pageId, {
-      ...DEFAULT_TEXT,
-      id,
-    }), [id]);
+    return this.enqueue(async () => {
+      this.assertActive();
+      const id = this.dependencies.idGenerator();
+      await this.applyDocumentMutation(() => this.history.execute(new AddElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        { ...DEFAULT_TEXT, id },
+      )), [id]);
+    });
   }
 
   async addShape(shape: ShapeElement['shape']): Promise<void> {
-    const id = this.dependencies.idGenerator();
-    await this.execute(
-      new AddElementCommand(this.dependencies.designStore, this.pageId, createShapeElement(id, shape)),
-      [id],
-    );
+    return this.enqueue(async () => {
+      this.assertActive();
+      const id = this.dependencies.idGenerator();
+      await this.applyDocumentMutation(() => this.history.execute(new AddElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        createShapeElement(id, shape),
+      )), [id]);
+    });
   }
 
   async addImage(file: File): Promise<void> {
-    const asset = await this.dependencies.assetGateway.upload(file);
-    const id = this.dependencies.idGenerator();
-    await this.execute(new AddElementCommand(this.dependencies.designStore, this.pageId, {
-      id,
-      type: 'image',
-      x: 220,
-      y: 380,
-      width: Math.min(asset.width, 640),
-      height: Math.min(asset.height, 480),
-      rotation: 0,
-      opacity: 1,
-      assetId: asset.id,
-    }), [id]);
+    return this.enqueue(async () => {
+      this.assertActive();
+      const asset = await this.dependencies.assetGateway.upload(file);
+      try {
+        this.assertActive();
+        const id = this.dependencies.idGenerator();
+        await this.applyDocumentMutation(() => this.history.execute(new AddElementCommand(
+          this.dependencies.designStore,
+          this.pageId,
+          {
+            id,
+            type: 'image',
+            x: 220,
+            y: 380,
+            width: Math.min(asset.width, 640),
+            height: Math.min(asset.height, 480),
+            rotation: 0,
+            opacity: 1,
+            assetId: asset.id,
+          },
+        )), [id]);
+      } catch (error) {
+        await this.removeUploadedAsset(asset.id);
+        throw error;
+      }
+    });
   }
 
   async replaceSelectedImage(file: File): Promise<void> {
-    const selected = this.singleSelectedElement();
-    if (!selected || selected.type !== 'image') return;
-
-    const asset = await this.dependencies.assetGateway.upload(file);
-    await this.execute(new UpdateElementCommand(
-      this.dependencies.designStore,
-      this.pageId,
-      selected.id,
-      { assetId: asset.id },
-    ));
+    return this.enqueue(async () => {
+      this.assertActive();
+      const selected = this.singleSelectedElement();
+      if (!selected || selected.type !== 'image') return;
+      const asset = await this.dependencies.assetGateway.upload(file);
+      try {
+        this.assertActive();
+        await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
+          this.dependencies.designStore,
+          this.pageId,
+          selected.id,
+          { assetId: asset.id },
+        )));
+      } catch (error) {
+        await this.removeUploadedAsset(asset.id);
+        throw error;
+      }
+    });
   }
 
   async updateSelection(patch: SelectionPatch): Promise<void> {
-    const selected = this.singleSelectedElement();
-    if (!selected || selected.type !== patch.type) return;
-
-    await this.execute(new UpdateElementCommand(
-      this.dependencies.designStore,
-      this.pageId,
-      selected.id,
-      patch.changes as Partial<DesignElement>,
-    ));
+    return this.enqueue(async () => {
+      this.assertActive();
+      const selected = this.singleSelectedElement();
+      if (!selected || selected.type !== patch.type) return;
+      await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        selected.id,
+        patch.changes as Partial<DesignElement>,
+      )));
+    });
   }
 
   async deleteSelection(): Promise<void> {
-    const selectedIds = this.selectedElementIds.filter((id) => this.findElement(id));
-    if (selectedIds.length === 0) return;
-
-    const commands = selectedIds.map((elementId) => new DeleteElementCommand(
-      this.dependencies.designStore,
-      this.pageId,
-      elementId,
-    ));
-    await this.execute(new CompositeEditorCommand(commands), []);
+    return this.enqueue(async () => {
+      this.assertActive();
+      const selectedIds = dedupeElementIds(this.selectedElementIds).filter((id) => this.findElement(id));
+      if (selectedIds.length === 0) return;
+      const commands = selectedIds.map((elementId) => new DeleteElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        elementId,
+      ));
+      await this.applyDocumentMutation(() => this.history.execute(new CompositeEditorCommand(commands)), []);
+    });
   }
 
   async bringForward(): Promise<void> {
@@ -197,18 +238,16 @@ export class Editor implements EditorApi {
   async undo(): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
-      if (!this.history.undo()) return;
-      this.dependencies.runtimeStore.getState().setSelectedElementIds([]);
-      await this.synchronizeDocument();
+      if (!this.history.canUndo()) return;
+      await this.applyDocumentMutation(() => { this.history.undo(); }, []);
     });
   }
 
   async redo(): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
-      if (!this.history.redo()) return;
-      this.dependencies.runtimeStore.getState().setSelectedElementIds([]);
-      await this.synchronizeDocument();
+      if (!this.history.canRedo()) return;
+      await this.applyDocumentMutation(() => { this.history.redo(); }, []);
     });
   }
 
@@ -218,16 +257,21 @@ export class Editor implements EditorApi {
   }
 
   async setBackground(color: string): Promise<void> {
-    await this.execute(new ChangeBackgroundCommand(
-      this.dependencies.designStore,
-      this.pageId,
-      color,
-    ));
+    return this.enqueue(async () => {
+      this.assertActive();
+      await this.applyDocumentMutation(() => this.history.execute(new ChangeBackgroundCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        color,
+      )));
+    });
   }
 
   exportPng(): Promise<Blob> {
-    this.assertActive();
-    return this.dependencies.exporter.exportPng(this.design, { width: 1080, height: 1350 });
+    return this.enqueue(async () => {
+      this.assertActive();
+      return this.dependencies.exporter.exportPng(structuredClone(this.design), { width: 1080, height: 1350 });
+    });
   }
 
   dispose(): void {
@@ -261,66 +305,103 @@ export class Editor implements EditorApi {
   }
 
   private async reorderSelection(offset: -1 | 1): Promise<void> {
-    const selected = this.singleSelectedElement();
-    const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
-    if (!selected || !page) return;
-
-    const currentIndex = page.elements.findIndex((element) => element.id === selected.id);
-    const nextIndex = currentIndex + offset;
-    if (nextIndex < 0 || nextIndex >= page.elements.length) return;
-
-    await this.execute(new ReorderElementCommand(
-      this.dependencies.designStore,
-      this.pageId,
-      selected.id,
-      nextIndex,
-    ));
-  }
-
-  private async execute(command: EditorCommand, selection?: string[]): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
-      this.history.execute(command);
-      if (selection) this.dependencies.runtimeStore.getState().setSelectedElementIds(selection);
-      await this.synchronizeDocument();
+      const selected = this.singleSelectedElement();
+      const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
+      if (!selected || !page) return;
+
+      const currentIndex = page.elements.findIndex((element) => element.id === selected.id);
+      const nextIndex = currentIndex + offset;
+      if (nextIndex < 0 || nextIndex >= page.elements.length) return;
+
+      await this.applyDocumentMutation(() => this.history.execute(new ReorderElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        selected.id,
+        nextIndex,
+      )));
     });
   }
 
-  private enqueue(operation: () => Promise<void>): Promise<void> {
+  private async applyDocumentMutation(
+    mutation: () => void,
+    selection?: string[],
+  ): Promise<void> {
+    const previousDesign = structuredClone(this.design);
+    const previousSelection = [...this.selectedElementIds];
+    const previousHistory = this.history.snapshot();
+
+    try {
+      mutation();
+      if (selection) this.dependencies.runtimeStore.getState().setSelectedElementIds(selection);
+      await this.synchronizeDocument(this.design, this.selectedElementIds);
+    } catch (error) {
+      this.dependencies.designStore.getState().replaceDesign(previousDesign);
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
+      this.history.restore(previousHistory);
+      try {
+        await this.dependencies.renderer.render(previousDesign);
+        this.dependencies.renderer.select(previousSelection);
+      } catch {
+        // 복구 렌더링 실패는 최초 오류를 대체하지 않는다.
+      }
+      throw error;
+    }
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.operationChain.then(operation, operation);
-    this.operationChain = result.catch(() => undefined);
+    this.operationChain = result.then(
+      () => undefined,
+      () => undefined,
+    );
     return result;
   }
 
-  private async synchronizeDocument(): Promise<void> {
-    await this.dependencies.renderer.render(this.design);
-    this.dependencies.onDocumentChange(this.design);
-    this.dependencies.renderer.select(this.selectedElementIds);
+  private async synchronizeDocument(design: Design, selection: string[]): Promise<void> {
+    await this.dependencies.renderer.render(design);
+    this.dependencies.onDocumentChange(design);
+    this.dependencies.renderer.select(selection);
   }
 
   private async handleRendererEvent(event: EditorEvent): Promise<void> {
     if (this.disposed) return;
     if (event.type === 'selection:changed') {
-      this.dependencies.runtimeStore.getState().setSelectedElementIds(event.elementIds);
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(dedupeElementIds(event.elementIds));
       return;
     }
     if (event.type === 'element:transformed') {
-      await this.execute(new TransformElementCommand(
-        this.dependencies.designStore,
-        this.pageId,
-        event.elementId,
-        { before: event.before, after: event.after },
-      ));
+      await this.enqueue(async () => {
+        this.assertActive();
+        await this.applyDocumentMutation(() => this.history.execute(new TransformElementCommand(
+          this.dependencies.designStore,
+          this.pageId,
+          event.elementId,
+          { before: event.before, after: event.after },
+        )));
+      });
       return;
     }
     const selected = this.findElement(event.elementId);
     if (!selected || selected.type !== 'text') return;
-    await this.execute(new UpdateElementCommand(
-      this.dependencies.designStore,
-      this.pageId,
-      event.elementId,
-      { text: event.after },
-    ));
+    await this.enqueue(async () => {
+      this.assertActive();
+      await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        event.elementId,
+        { text: event.after },
+      )));
+    });
+  }
+
+  private async removeUploadedAsset(assetId: string): Promise<void> {
+    try {
+      await this.dependencies.assetGateway.remove(assetId);
+    } catch {
+      // 보상 실패가 원래 명령 실패를 가리지 않게 한다.
+    }
   }
 
   private assertActive(): void {
