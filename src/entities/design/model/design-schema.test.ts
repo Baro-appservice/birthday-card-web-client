@@ -26,6 +26,7 @@ const elementVariants = [
     coreField: 'fontSize',
     invalidCoreValue: '32',
     invalidVariant: { textAlign: 'justify' },
+    invalidDiscriminant: { type: 'video' },
   },
   {
     name: 'image',
@@ -43,6 +44,7 @@ const elementVariants = [
     coreField: 'assetId',
     invalidCoreValue: 123,
     invalidVariant: { type: 'video' },
+    invalidDiscriminant: { type: 'video' },
   },
   {
     name: 'shape',
@@ -61,6 +63,7 @@ const elementVariants = [
     coreField: 'fill',
     invalidCoreValue: 123,
     invalidVariant: { shape: 'triangle' },
+    invalidDiscriminant: { type: 'video' },
   },
 ] as const;
 
@@ -144,8 +147,14 @@ describe('designSchema', () => {
   });
 
   it.each(elementVariants)(
-    '$name 요소는 정상 입력만 받고 unknown key, 잘못된 핵심 타입과 variant를 거부한다',
-    ({ valid, coreField, invalidCoreValue, invalidVariant }) => {
+    '$name 요소는 정상 입력만 받고 unknown key, 잘못된 핵심 타입, enum과 discriminant를 거부한다',
+    ({
+      valid,
+      coreField,
+      invalidCoreValue,
+      invalidVariant,
+      invalidDiscriminant,
+    }) => {
       expect(designElementSchema.safeParse(valid).success).toBe(true);
       expect(
         designElementSchema.safeParse({ ...valid, unsupported: true }).success,
@@ -155,6 +164,9 @@ describe('designSchema', () => {
       ).toBe(false);
       expect(
         designElementSchema.safeParse({ ...valid, ...invalidVariant }).success,
+      ).toBe(false);
+      expect(
+        designElementSchema.safeParse({ ...valid, ...invalidDiscriminant }).success,
       ).toBe(false);
     },
   );
