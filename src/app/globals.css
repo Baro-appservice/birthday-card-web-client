@@ -1,0 +1,15 @@
+@import 'tailwindcss';
+
+:root {
+  --brand: #6d5dfc;
+  --workspace: #f7f7fb;
+  --surface: #ffffff;
+  --celebration-pink: #ff8db8;
+  --shadow-soft: 0 12px 32px rgb(31 30 49 / 12%);
+}
+
+body {
+  margin: 0;
+  background: var(--workspace);
+  color: #1f1e31;
+}
