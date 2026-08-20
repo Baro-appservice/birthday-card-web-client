@@ -27,3 +27,6 @@ test-results/
 
 # local brainstorming artifacts
 .superpowers/
+
+# isolated feature worktrees
+.worktrees/
