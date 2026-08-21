@@ -1,0 +1,30 @@
+@import 'tailwindcss';
+
+:root {
+  --brand: #7256d8;
+  --brand-strong: #5a42b7;
+  --brand-soft: #e8e1ff;
+  --celebration-pink: #ff7fa6;
+  --surface: #fffbfe;
+  --surface-muted: #f8f5fa;
+  --workspace: #eceaf4;
+  --workspace-deep: #e1ddea;
+  --ink: #2c2738;
+  --ink-muted: #706a7b;
+  --border: #d9d4e0;
+  --border-strong: #bdb4ca;
+  --success: #21856a;
+  --danger: #bd4267;
+  --danger-strong: #9f2f53;
+  --danger-border: #efbdcd;
+  --shadow-soft: 0 12px 32px rgb(44 39 56 / 12%);
+  --shadow-float: 0 20px 48px rgb(44 39 56 / 18%);
+  --canvas-shadow: 0 12px 28px rgb(44 39 56 / 14%);
+  --paper-shadow: 16px 20px 0 rgb(114 86 216 / 28%);
+}
+
+body {
+  margin: 0;
+  background: var(--workspace);
+  color: var(--ink);
+}

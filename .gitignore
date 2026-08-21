@@ -20,6 +20,9 @@ test-results/
 # logs
 *.log
 
+# TypeScript incremental build information
+*.tsbuildinfo
+
 # operating system and editor files
 .DS_Store
 .idea/
