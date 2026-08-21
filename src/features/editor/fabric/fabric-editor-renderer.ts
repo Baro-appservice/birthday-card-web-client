@@ -37,7 +37,7 @@ function canReuseObject(
   return object instanceof FabricImage || object instanceof Rect;
 }
 
-function configureInteraction(object: FabricObject): void {
+function configureInteraction(object: FabricObject, element?: DesignElement): void {
   object.set({
     lockScalingFlip: true,
     lockSkewingX: true,
@@ -45,6 +45,11 @@ function configureInteraction(object: FabricObject): void {
   });
   object.cornerSize = 14;
   object.touchCornerSize = 32;
+  if (element?.type === 'text') {
+    object.setControlsVisibility({ mt: false, mb: false });
+  } else if (element?.type === 'shape' && element.shape === 'circle') {
+    object.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
+  }
 }
 
 function applyCommonProperties(object: FabricObject, element: DesignElement): void {
@@ -54,7 +59,7 @@ function applyCommonProperties(object: FabricObject, element: DesignElement): vo
     angle: element.rotation,
     opacity: element.opacity,
   });
-  configureInteraction(object);
+  configureInteraction(object, element);
 }
 
 function applyCoverImage(object: FabricImage, frameWidth: number, frameHeight: number): void {
@@ -91,8 +96,9 @@ function patchObject(object: FabricObject, element: DesignElement): void {
   applyCommonProperties(object, element);
 
   if (element.type === 'text' && object instanceof Textbox) {
+    const editingOwnText = object.isEditing && object.text === element.text;
     object.set({
-      text: element.text,
+      ...(editingOwnText ? {} : { text: element.text }),
       width: element.width,
       fontFamily: APPROVED_FONT_FAMILIES.has(element.fontFamily)
         ? element.fontFamily
@@ -104,8 +110,7 @@ function patchObject(object: FabricObject, element: DesignElement): void {
       scaleX: 1,
       scaleY: 1,
     });
-    object.initDimensions();
-    object.setControlsVisibility({ mt: false, mb: false });
+    if (!editingOwnText) object.initDimensions();
   } else if (element.type === 'shape' && element.shape === 'rectangle' && object instanceof Rect) {
     object.set({
       width: element.width,
@@ -162,6 +167,8 @@ export class FabricEditorRenderer implements EditorRenderer {
       selection: false,
       selectionKey: null,
       altSelectionKey: null,
+      uniformScaling: true,
+      uniScaleKey: null,
     });
     this.canvas = canvas;
     this.eventAdapter = new FabricEventAdapter(canvas, (event) => this.emit(event));
@@ -181,7 +188,7 @@ export class FabricEditorRenderer implements EditorRenderer {
         return { element, previous, object: existing, reused: true };
       }
       const object = await elementToFabricObject(element, this.assetGateway);
-      configureInteraction(object);
+      configureInteraction(object, element);
       return { element, previous, object, reused: false };
     }));
 
