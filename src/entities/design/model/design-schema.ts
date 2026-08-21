@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { DESIGN_HEIGHT, DESIGN_VERSION, DESIGN_WIDTH } from './design';
+import { DESIGN_HEIGHT, DESIGN_WIDTH } from './design';
 
 const baseElementSchema = z
   .object({
@@ -76,24 +76,35 @@ export const designPageSchema = z
     });
   });
 
-export const designSchema = z
-  .object({
-    version: z.literal(DESIGN_VERSION),
-    width: z.literal(DESIGN_WIDTH),
-    height: z.literal(DESIGN_HEIGHT),
-    pages: z.array(designPageSchema).min(1),
-  })
-  .strict()
-  .superRefine((design, context) => {
-    const seen = new Set<string>();
-    design.pages.forEach((page, index) => {
-      if (seen.has(page.id)) {
-        context.addIssue({
-          code: 'custom',
-          message: `중복된 페이지 ID입니다: ${page.id}`,
-          path: ['pages', index, 'id'],
-        });
-      }
-      seen.add(page.id);
+function designSchemaForVersion(version: 1) {
+  return z
+    .object({
+      version: z.literal(version),
+      width: z.literal(DESIGN_WIDTH),
+      height: z.literal(DESIGN_HEIGHT),
+      pages: z.array(designPageSchema).min(1),
+    })
+    .strict()
+    .superRefine((design, context) => {
+      const seen = new Set<string>();
+      design.pages.forEach((page, index) => {
+        if (seen.has(page.id)) {
+          context.addIssue({
+            code: 'custom',
+            message: `중복된 페이지 ID입니다: ${page.id}`,
+            path: ['pages', index, 'id'],
+          });
+        }
+        seen.add(page.id);
+      });
     });
-  });
+}
+
+/**
+ * Frozen persisted v1 contract. Never mutate this schema when Design v2 is
+ * introduced; add a new version schema and an explicit v1 -> v2 migration.
+ */
+export const designV1Schema = designSchemaForVersion(1);
+
+/** Current canonical persisted/domain schema. */
+export const designSchema = designV1Schema;
