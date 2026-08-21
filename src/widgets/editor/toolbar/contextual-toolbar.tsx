@@ -38,6 +38,7 @@ function TextContentInput({
   const submittedRef = useRef(selected.text);
   const historyGroupRef = useRef<string | null>(null);
   const focusedRef = useRef(false);
+  const composingRef = useRef(false);
 
   const ensureHistoryGroup = () => {
     if (!historyGroupRef.current) {
@@ -66,6 +67,7 @@ function TextContentInput({
   };
 
   const scheduleCommit = (value: string) => {
+    if (composingRef.current) return;
     cancelScheduledCommit();
     const historyGroup = ensureHistoryGroup();
     timerRef.current = setTimeout(() => {
@@ -85,14 +87,24 @@ function TextContentInput({
   }, []);
 
   return (
-    <input
+    <textarea
       id="selected-text-content"
       aria-label="선택한 텍스트 내용"
-      type="text"
+      rows={property ? 3 : 2}
       value={draft}
       onFocus={() => {
         focusedRef.current = true;
         historyGroupRef.current = createTextHistoryGroup(selected.id);
+      }}
+      onCompositionStart={() => {
+        composingRef.current = true;
+        cancelScheduledCommit();
+      }}
+      onCompositionEnd={(event) => {
+        composingRef.current = false;
+        const value = event.currentTarget.value;
+        setDraft(value);
+        scheduleCommit(value);
       }}
       onChange={(event) => {
         const value = event.target.value;
@@ -101,6 +113,7 @@ function TextContentInput({
       }}
       onBlur={() => {
         focusedRef.current = false;
+        composingRef.current = false;
         const historyGroup = ensureHistoryGroup();
         void commit(draft, historyGroup)
           .catch(() => undefined)
@@ -108,13 +121,7 @@ function TextContentInput({
             if (historyGroupRef.current === historyGroup) historyGroupRef.current = null;
           });
       }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          event.currentTarget.blur();
-        }
-      }}
-      className={`${property ? propertyTouchTargetClass : 'h-9'} min-w-48 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}
+      className={`${property ? 'min-h-20' : 'min-h-14'} min-w-48 flex-1 resize-y rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}
     />
   );
 }
@@ -138,7 +145,12 @@ function FontSizeInput({
     }
     const clamped = clampTextFontSize(parsed);
     setDraft(String(clamped));
-    if (clamped !== fontSize) await onCommit(clamped);
+    if (clamped === fontSize) return;
+    try {
+      await onCommit(clamped);
+    } catch {
+      setDraft(String(fontSize));
+    }
   };
 
   return (
@@ -152,7 +164,7 @@ function FontSizeInput({
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => void commit()}
       onKeyDown={(event) => {
-        if (event.key === 'Enter') {
+        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
           event.preventDefault();
           event.currentTarget.blur();
         }
@@ -226,7 +238,7 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
         key={`${selected.id}:${selected.fontSize}`}
         fontSize={selected.fontSize}
         property={property}
-        onCommit={(fontSize) => update({ fontSize })}
+        onCommit={(fontSize) => update({ fontSize }, undefined, true)}
       />
       <Button variant={selected.fontWeight >= 600 ? 'primary' : 'secondary'} className={property ? propertyTouchTargetClass : ''} aria-label="굵게" onClick={() => void update({ fontWeight: selected.fontWeight >= 600 ? 400 : 700 })}>B</Button>
       <ColorInput label="글자색" value={selected.color} inputClassName={property ? propertyTouchTargetClass : ''} onChange={(color) => void update({ color })} />
