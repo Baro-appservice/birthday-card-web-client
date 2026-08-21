@@ -185,6 +185,28 @@ test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', 
   expect(serialized).not.toContain('scaleY');
 });
 
+test('기존 v1 카드는 자동으로 v2로 migration하고 다시 저장한다', async ({ page }) => {
+  const cardId = 'e2e-v1-migration';
+  await page.goto(`/editor/${cardId}`);
+  await waitForEditorReady(page);
+  await waitForInitialDesignSave(page, cardId);
+  const current = await readSavedDesign(page, cardId);
+  const v1 = { ...current, version: 1 };
+  await seedDesignRecord(page, {
+    cardId,
+    current: v1,
+    backup: null,
+    updatedAt: 50,
+  });
+
+  await page.reload();
+  await waitForEditorReady(page);
+
+  await expect.poll(async () => (await readSavedDesign(page, cardId)).version).toBe(2);
+  expect(findElement(await readSavedDesign(page, cardId), 'title').text)
+    .toBe(findElement(current, 'title').text);
+});
+
 test('손상된 현재 카드는 선택 전까지 유지하고 직전 정상 카드로 복구한다', async ({ page }) => {
   const cardId = 'e2e-corrupt-recovery';
   await page.goto(`/editor/${cardId}`);
@@ -231,6 +253,6 @@ test('지원하지 않는 문서는 선택 전까지 유지하고 backup이 없�
 
   await page.getByRole('button', { name: '샘플 카드로 다시 시작' }).click();
   await waitForEditorReady(page);
-  await expect.poll(async () => (await readSavedDesign(page, cardId)).version).toBe(1);
+  await expect.poll(async () => (await readSavedDesign(page, cardId)).version).toBe(2);
   expect((await readDesignRecord(page, cardId))?.backup).toBeNull();
 });
