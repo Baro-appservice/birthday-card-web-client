@@ -279,8 +279,13 @@ export class Editor implements EditorApi {
       this.assertActive();
       if (!this.history.canUndo()) return;
       const previousSelection = [...this.selectedElementIds];
-      await this.applyDocumentMutation(() => { this.history.undo(); });
-      await this.restoreSurvivingSelection(previousSelection);
+      await this.applyDocumentMutation(() => {
+        this.history.undo();
+        const survivingSelection = previousSelection
+          .filter((id) => this.findElement(id))
+          .slice(0, 1);
+        this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection);
+      });
     });
   }
 
@@ -289,8 +294,13 @@ export class Editor implements EditorApi {
       this.assertActive();
       if (!this.history.canRedo()) return;
       const previousSelection = [...this.selectedElementIds];
-      await this.applyDocumentMutation(() => { this.history.redo(); });
-      await this.restoreSurvivingSelection(previousSelection);
+      await this.applyDocumentMutation(() => {
+        this.history.redo();
+        const survivingSelection = previousSelection
+          .filter((id) => this.findElement(id))
+          .slice(0, 1);
+        this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection);
+      });
     });
   }
 
@@ -553,12 +563,6 @@ export class Editor implements EditorApi {
       }
       throw error;
     }
-  }
-
-  private async restoreSurvivingSelection(previousSelection: string[]): Promise<void> {
-    const survivingSelection = previousSelection.filter((id) => this.findElement(id)).slice(0, 1);
-    this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection);
-    this.dependencies.renderer.select(survivingSelection);
   }
 
   private protectedAssetIds(): ReadonlySet<string> {
