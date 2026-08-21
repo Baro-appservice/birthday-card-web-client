@@ -1,11 +1,11 @@
-import type { DesignElement, TransformSnapshot } from '@/entities/design';
+import type { DesignElement, ElementTransformSnapshot } from '@/entities/design';
 import type { DesignStore } from '@/features/editor/model/design-store';
 
 import type { EditorCommand } from '../core/editor-command';
 
 interface TransformChange {
-  before: TransformSnapshot;
-  after: TransformSnapshot;
+  before: ElementTransformSnapshot;
+  after: ElementTransformSnapshot;
 }
 
 function findElement(store: DesignStore, pageId: string, elementId: string): DesignElement {
@@ -14,6 +14,29 @@ function findElement(store: DesignStore, pageId: string, elementId: string): Des
   const element = page.elements.find((candidate) => candidate.id === elementId);
   if (!element) throw new Error(`존재하지 않는 요소입니다: ${elementId}`);
   return element;
+}
+
+function applyTransform(
+  element: DesignElement,
+  transform: ElementTransformSnapshot,
+): DesignElement {
+  const transformed = {
+    ...element,
+    x: transform.x,
+    y: transform.y,
+    width: transform.width,
+    height: transform.height,
+    rotation: transform.rotation,
+  };
+
+  if (element.type === 'text' && 'fontSize' in transform) {
+    return {
+      ...transformed,
+      fontSize: transform.fontSize,
+    };
+  }
+
+  return transformed;
 }
 
 export class TransformElementCommand implements EditorCommand {
@@ -27,8 +50,8 @@ export class TransformElementCommand implements EditorCommand {
     change: TransformChange,
   ) {
     const element = findElement(store, pageId, elementId);
-    this.before = { ...element, ...change.before };
-    this.after = { ...element, ...change.after };
+    this.before = applyTransform(element, change.before);
+    this.after = applyTransform(element, change.after);
   }
 
   execute(): void {
