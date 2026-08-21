@@ -1,11 +1,13 @@
 import type { EditorEvent } from '@/features/editor/core/ports';
-import type { Canvas, FabricObject } from 'fabric';
+import { Textbox, type Canvas, type FabricObject } from 'fabric';
 
-import { readTransform } from './fabric-element-mapper';
+import { readTextTransform, readTransform } from './fabric-element-mapper';
 import { getElementId } from './fabric-object-metadata';
 
 type FabricEvent = { target?: FabricObject; selected?: FabricObject[] };
 type TextFabricObject = FabricObject & { text?: string };
+
+type TransformSnapshot = Extract<EditorEvent, { type: 'element:transformed' }>['before'];
 
 function firstElementId(objects: FabricObject[] | undefined): string[] {
   for (const object of objects ?? []) {
@@ -19,8 +21,12 @@ function isSameSelection(previous: string[], next: string[]): boolean {
   return previous.length === next.length && previous.every((id, index) => id === next[index]);
 }
 
+function readObjectTransform(object: FabricObject): TransformSnapshot {
+  return object instanceof Textbox ? readTextTransform(object) : readTransform(object);
+}
+
 export class FabricEventAdapter {
-  private readonly beforeTransforms = new WeakMap<FabricObject, ReturnType<typeof readTransform>>();
+  private readonly beforeTransforms = new WeakMap<FabricObject, TransformSnapshot>();
   private readonly beforeTexts = new WeakMap<FabricObject, string>();
   private selection: string[] = [];
   private disposed = false;
@@ -86,7 +92,7 @@ export class FabricEventAdapter {
 
   private captureTransform(object: FabricObject | undefined): void {
     if (!object || !getElementId(object) || this.beforeTransforms.has(object)) return;
-    this.beforeTransforms.set(object, readTransform(object));
+    this.beforeTransforms.set(object, readObjectTransform(object));
   }
 
   private emitTransform(object: FabricObject | undefined): void {
@@ -95,7 +101,7 @@ export class FabricEventAdapter {
     this.beforeTransforms.delete(object);
     const elementId = getElementId(object);
     if (!before || !elementId) return;
-    const after = readTransform(object);
+    const after = readObjectTransform(object);
     if (JSON.stringify(before) === JSON.stringify(after)) return;
     this.emit({ type: 'element:transformed', elementId, before, after });
   }
