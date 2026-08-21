@@ -89,6 +89,9 @@ async function disposeEditorAssembly(assembly: EditorAssembly): Promise<void> {
   if (disposedAssemblies.has(assembly)) return;
   disposedAssemblies.add(assembly);
   await runCleanupStep(() => assembly.value.saveCoordinator.flush());
+  // Run GC while Design history and IndexedDB are still available. If the latest
+  // save failed, the emergency snapshot and in-memory history remain protected.
+  await runCleanupStep(() => assembly.value.editor.flushMaintenance());
   await runCleanupStep(() => assembly.value.saveCoordinator.dispose());
   await runCleanupStep(() => assembly.value.editor.dispose());
   await runCleanupStep(() => assembly.disposeAssetGateway());
