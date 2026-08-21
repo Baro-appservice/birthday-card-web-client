@@ -35,7 +35,9 @@ export function ColorInput({
           type="color"
           value={value}
           onFocus={() => { interactionRef.current = createInteractionId(); }}
-          onPointerDown={() => { ensureInteraction(); }}
+          // A focused native color input can be opened repeatedly without a blur
+          // between picker sessions. Treat each pointer activation as a new Undo group.
+          onPointerDown={() => { interactionRef.current = createInteractionId(); }}
           onChange={(event) => onChange(event.target.value, ensureInteraction())}
           onBlur={() => { interactionRef.current = null; }}
           className={`size-5 cursor-pointer border-0 bg-transparent p-0 ${inputClassName}`}
