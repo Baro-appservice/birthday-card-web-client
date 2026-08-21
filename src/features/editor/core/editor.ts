@@ -65,6 +65,7 @@ export interface EditorApi {
   setBackground(color: string): Promise<void>;
   exportPng(): Promise<Blob>;
   flushMaintenance(): Promise<void>;
+  close(): Promise<void>;
 }
 
 const DEFAULT_TEXT: Omit<TextElement, 'id'> = {
@@ -114,6 +115,7 @@ export class Editor implements EditorApi {
   private readonly unsubscribe: () => void;
   private operationChain: Promise<void> = Promise.resolve();
   private assetGcTimer: ReturnType<typeof setTimeout> | null = null;
+  private closePromise: Promise<void> | null = null;
   private mountAttempted = false;
   private disposed = false;
   private generation = 0;
@@ -342,13 +344,25 @@ export class Editor implements EditorApi {
     });
   }
 
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    if (!this.disposed) {
+      this.disposed = true;
+      this.generation += 1;
+      this.clearAssetGcTimer();
+      this.unsubscribe();
+    }
+
+    try {
+      this.closePromise = Promise.resolve(this.dependencies.renderer.dispose()).then(() => undefined);
+    } catch (error) {
+      this.closePromise = Promise.reject(error);
+    }
+    return this.closePromise;
+  }
+
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.generation += 1;
-    this.clearAssetGcTimer();
-    this.unsubscribe();
-    this.dependencies.renderer.dispose();
+    void this.close().catch(() => undefined);
   }
 
   private get design(): Design {
