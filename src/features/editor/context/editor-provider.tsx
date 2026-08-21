@@ -17,12 +17,13 @@ import { createEditorUiStore } from '@/features/editor/model/editor-ui-store';
 
 import { EditorContext, type EditorContextValue } from './editor-context';
 
-interface EditorAssembly {
+export interface EditorAssembly {
   value: EditorContextValue;
-  assetGateway: BrowserAssetGateway;
-  database: IDBDatabase;
-  disposed: boolean;
+  disposeAssetGateway(): void;
+  closeDatabase(): void;
 }
+
+export type EditorAssemblyFactory = (cardId: string) => Promise<EditorAssembly>;
 
 interface ProviderValue {
   cardId: string;
@@ -34,7 +35,8 @@ interface InitializationError {
   message: string;
 }
 
-function createEditorAssembly(cardId: string, database: IDBDatabase): EditorAssembly {
+export async function createBrowserEditorAssembly(cardId: string): Promise<EditorAssembly> {
+  const database = await openEditorDb();
   const designStore = createDesignStore(createSampleDesign());
   const runtimeStore = createEditorRuntimeStore();
   const uiStore = createEditorUiStore();
@@ -61,45 +63,57 @@ function createEditorAssembly(cardId: string, database: IDBDatabase): EditorAsse
       repository,
       saveCoordinator,
     },
-    assetGateway,
-    database,
-    disposed: false,
+    disposeAssetGateway: () => assetGateway.dispose(),
+    closeDatabase: () => database.close(),
   };
 }
 
-function disposeEditorAssembly(assembly: EditorAssembly): void {
-  if (assembly.disposed) return;
-  assembly.disposed = true;
-  void assembly.value.saveCoordinator.flush()
-    .catch(() => undefined)
-    .finally(() => {
-      assembly.value.saveCoordinator.dispose();
-      assembly.value.editor.dispose();
-      assembly.assetGateway.dispose();
-      assembly.database.close();
-    });
+const disposedAssemblies = new WeakSet<EditorAssembly>();
+
+async function runCleanupStep(step: () => void | Promise<void>): Promise<void> {
+  try {
+    await step();
+  } catch {
+    // Continue so one faulty browser resource cannot leak later resources.
+  }
 }
 
-export function EditorProvider({ cardId, children }: { cardId: string; children: ReactNode }) {
-  const assemblyRef = useRef<EditorAssembly | null>(null);
+async function disposeEditorAssembly(assembly: EditorAssembly): Promise<void> {
+  if (disposedAssemblies.has(assembly)) return;
+  disposedAssemblies.add(assembly);
+  await runCleanupStep(() => assembly.value.saveCoordinator.flush());
+  await runCleanupStep(() => assembly.value.saveCoordinator.dispose());
+  await runCleanupStep(() => assembly.value.editor.dispose());
+  await runCleanupStep(() => assembly.disposeAssetGateway());
+  await runCleanupStep(() => assembly.closeDatabase());
+}
+
+export function EditorProvider({
+  cardId,
+  children,
+  assemblyFactory = createBrowserEditorAssembly,
+}: {
+  cardId: string;
+  children: ReactNode;
+  assemblyFactory?: EditorAssemblyFactory;
+}) {
+  const releaseRef = useRef<Promise<void>>(Promise.resolve());
   const [providerValue, setProviderValue] = useState<ProviderValue | null>(null);
   const [initializationError, setInitializationError] = useState<InitializationError | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    let ownedAssembly: EditorAssembly | null = null;
+    const releasePrevious = releaseRef.current;
 
-    void openEditorDb()
-      .then((database) => {
+    const setup = releasePrevious
+      .then(() => assemblyFactory(cardId))
+      .then(async (assembly) => {
         if (cancelled) {
-          database.close();
+          await disposeEditorAssembly(assembly);
           return;
         }
-        const assembly = createEditorAssembly(cardId, database);
-        if (cancelled) {
-          disposeEditorAssembly(assembly);
-          return;
-        }
-        assemblyRef.current = assembly;
+        ownedAssembly = assembly;
         setProviderValue({ cardId, value: assembly.value });
       })
       .catch(() => {
@@ -110,11 +124,9 @@ export function EditorProvider({ cardId, children }: { cardId: string; children:
 
     return () => {
       cancelled = true;
-      const assembly = assemblyRef.current;
-      assemblyRef.current = null;
-      if (assembly) disposeEditorAssembly(assembly);
+      releaseRef.current = ownedAssembly ? disposeEditorAssembly(ownedAssembly) : setup;
     };
-  }, [cardId]);
+  }, [assemblyFactory, cardId]);
 
   if (initializationError?.cardId === cardId) {
     return <p role="alert">{initializationError.message}</p>;
