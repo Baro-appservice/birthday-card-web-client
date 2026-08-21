@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
-import { DESIGN_HEIGHT, DESIGN_WIDTH } from './design';
+import { DESIGN_HEIGHT, DESIGN_VERSION, DESIGN_WIDTH } from './design';
 
 /*
- * Persisted v1 schemas are intentionally isolated from the current-schema
- * aliases below. When v2 is introduced, do not edit these v1 definitions;
- * add a separate v2 schema and migrate v1 -> v2 explicitly.
+ * Persisted v1 contract copied from the shipped/main v1 format. Keep every
+ * definition in this section unchanged so future migrations always parse v1
+ * with the rules that existed when it was written.
  */
 const v1BaseElementSchema = z
   .object({
@@ -31,8 +31,7 @@ const v1TextElementSchema = v1BaseElementSchema
   })
   .strict();
 
-const browserUrlScheme = /^(blob|data|https?):/i;
-
+const v1BrowserUrlScheme = /^(blob|data|https?):/i;
 const v1ImageElementSchema = v1BaseElementSchema
   .extend({
     type: z.literal('image'),
@@ -40,7 +39,7 @@ const v1ImageElementSchema = v1BaseElementSchema
       .string()
       .trim()
       .min(1)
-      .refine((assetId) => !browserUrlScheme.test(assetId), {
+      .refine((assetId) => !v1BrowserUrlScheme.test(assetId), {
         message: '브라우저 URL은 assetId로 저장할 수 없습니다.',
       }),
   })
@@ -49,7 +48,7 @@ const v1ImageElementSchema = v1BaseElementSchema
 const v1ShapeElementSchema = v1BaseElementSchema
   .extend({
     type: z.literal('shape'),
-    shape: z.enum(['rectangle', 'circle', 'ellipse']),
+    shape: z.enum(['rectangle', 'circle']),
     fill: z.string().min(1),
   })
   .strict();
@@ -66,6 +65,76 @@ const v1DesignPageSchema = z
     background: z.string().min(1),
     elements: z.array(v1DesignElementSchema),
   })
+  .strict();
+
+export const designV1Schema = z
+  .object({
+    version: z.literal(1),
+    width: z.literal(DESIGN_WIDTH),
+    height: z.literal(DESIGN_HEIGHT),
+    pages: z.array(v1DesignPageSchema).min(1),
+  })
+  .strict();
+
+/* Current v2 contract. */
+const v2BaseElementSchema = z
+  .object({
+    id: z.string().min(1),
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+    rotation: z.number(),
+    opacity: z.number().min(0).max(1),
+  })
+  .strict();
+
+export const textElementSchema = v2BaseElementSchema
+  .extend({
+    type: z.literal('text'),
+    text: z.string(),
+    fontFamily: z.string().min(1),
+    fontSize: z.number().positive(),
+    fontWeight: z.number().positive(),
+    color: z.string().min(1),
+    textAlign: z.enum(['left', 'center', 'right']),
+  })
+  .strict();
+
+const v2BrowserUrlScheme = /^(blob|data|https?):/i;
+export const imageElementSchema = v2BaseElementSchema
+  .extend({
+    type: z.literal('image'),
+    assetId: z
+      .string()
+      .trim()
+      .min(1)
+      .refine((assetId) => !v2BrowserUrlScheme.test(assetId), {
+        message: '브라우저 URL은 assetId로 저장할 수 없습니다.',
+      }),
+  })
+  .strict();
+
+export const shapeElementSchema = v2BaseElementSchema
+  .extend({
+    type: z.literal('shape'),
+    shape: z.enum(['rectangle', 'circle', 'ellipse']),
+    fill: z.string().min(1),
+  })
+  .strict();
+
+export const designElementSchema = z.discriminatedUnion('type', [
+  textElementSchema,
+  imageElementSchema,
+  shapeElementSchema,
+]);
+
+export const designPageSchema = z
+  .object({
+    id: z.string().min(1),
+    background: z.string().min(1),
+    elements: z.array(designElementSchema),
+  })
   .strict()
   .superRefine((page, context) => {
     const seen = new Set<string>();
@@ -81,13 +150,12 @@ const v1DesignPageSchema = z
     });
   });
 
-/** Frozen persisted v1 contract. */
-export const designV1Schema = z
+export const designV2Schema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     width: z.literal(DESIGN_WIDTH),
     height: z.literal(DESIGN_HEIGHT),
-    pages: z.array(v1DesignPageSchema).min(1),
+    pages: z.array(designPageSchema).min(1),
   })
   .strict()
   .superRefine((design, context) => {
@@ -104,14 +172,8 @@ export const designV1Schema = z
     });
   });
 
-/*
- * Current canonical aliases. They point at v1 only while DESIGN_VERSION is 1.
- * A future v2 change should replace these aliases with v2 schemas while leaving
- * every v1 schema above untouched.
- */
-export const textElementSchema = v1TextElementSchema;
-export const imageElementSchema = v1ImageElementSchema;
-export const shapeElementSchema = v1ShapeElementSchema;
-export const designElementSchema = v1DesignElementSchema;
-export const designPageSchema = v1DesignPageSchema;
-export const designSchema = designV1Schema;
+if (DESIGN_VERSION !== 2) {
+  throw new Error('현재 Design version과 designV2Schema가 일치하지 않습니다.');
+}
+
+export const designSchema = designV2Schema;
