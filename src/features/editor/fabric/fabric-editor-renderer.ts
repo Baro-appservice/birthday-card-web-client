@@ -145,6 +145,10 @@ function sameObjectOrder(current: FabricObject[], next: FabricObject[]): boolean
   return current.length === next.length && current.every((object, index) => object === next[index]);
 }
 
+function disposeObjects(objects: Iterable<FabricObject>): void {
+  for (const object of objects) object.dispose();
+}
+
 export class FabricEditorRenderer implements EditorRenderer {
   private canvas: Canvas | undefined;
   private eventAdapter: FabricEventAdapter | undefined;
@@ -193,7 +197,10 @@ export class FabricEditorRenderer implements EditorRenderer {
       return { element, previous, object, reused: false };
     }));
 
-    if (!this.isCurrent(generation, canvas)) return;
+    if (!this.isCurrent(generation, canvas)) {
+      disposeObjects(prepared.filter((entry) => !entry.reused).map((entry) => entry.object));
+      return;
+    }
 
     try {
       let visualChange = false;
@@ -212,6 +219,7 @@ export class FabricEditorRenderer implements EditorRenderer {
       const objectsToRemove = currentObjects.filter((object) => !nextObjectSet.has(object));
       if (objectsToRemove.length > 0) {
         canvas.remove(...objectsToRemove);
+        disposeObjects(objectsToRemove);
         visualChange = true;
       }
 
