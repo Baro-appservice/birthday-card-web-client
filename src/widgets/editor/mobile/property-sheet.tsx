@@ -61,7 +61,7 @@ export function PropertySheet({
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border-strong)]" aria-hidden="true" />
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id={titleId} className="font-[ui-rounded,Arial_Rounded_MT_Bold,system-ui] text-lg text-[var(--ink)]">{title}</h2>
-          <button ref={closeButtonRef} type="button" aria-label="속성 시트 닫기" onClick={onClose} className="grid size-11 place-items-center rounded-xl text-xl text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]">×</button>
+          <button ref={closeButtonRef} type="button" aria-label="속성 시트 닫기" onClick={onClose} className="property-touch-target grid size-11 place-items-center rounded-xl text-xl text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]">×</button>
         </div>
         {children}
       </section>

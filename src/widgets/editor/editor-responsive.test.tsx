@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -103,5 +103,69 @@ describe('EditorScreen responsive composition', () => {
 
     await user.click(screen.getByRole('button', { name: '속성 시트 닫기' }));
     expect(screen.queryByRole('dialog', { name: '선택한 요소 편집' })).not.toBeInTheDocument();
+  });
+
+  it('태블릿 선택 속성을 modal property sheet로 열고 Drawer의 focus와 Escape를 관리한다', async () => {
+    const viewport = installMatchMedia(820);
+    const user = userEvent.setup();
+    const kit = createEditorTestKit();
+    const view = render(<EditorScreen cardId="local-demo" assemblyFactory={assemblyFactoryFor(kit)} />);
+
+    const drawerTrigger = await screen.findByRole('button', { name: '편집 도구 열기' });
+    await user.click(drawerTrigger);
+    expect(await screen.findByRole('navigation', { name: '태블릿 편집 도구' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: '텍스트' })).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: '태블릿 편집 도구' })).not.toBeInTheDocument());
+    expect(drawerTrigger).toHaveFocus();
+
+    drawerTrigger.focus();
+    act(() => kit.runtimeStore.getState().setSelectedElementIds(['title']));
+    const sheet = await screen.findByRole('dialog', { name: '선택한 요소 편집' });
+    expect(sheet).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByRole('button', { name: '속성 시트 닫기' })).toHaveFocus();
+    expect(sheet).toContainElement(screen.getByLabelText('선택 도구'));
+
+    fireEvent.keyDown(sheet, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '선택한 요소 편집' })).not.toBeInTheDocument());
+    expect(drawerTrigger).toHaveFocus();
+
+    await user.click(drawerTrigger);
+    await screen.findByRole('navigation', { name: '태블릿 편집 도구' });
+    act(() => viewport.setWidth(1280));
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: '태블릿 편집 도구' })).not.toBeInTheDocument());
+    view.unmount();
+    expect(() => fireEvent.keyDown(window, { key: 'Escape' })).not.toThrow();
+  });
+
+  it('모바일 property variant는 layer 정밀 동작 없이 44px control contract를 적용하고 물리 키보드를 처리한다', async () => {
+    installMatchMedia(390);
+    const kit = createEditorTestKit();
+    const undo = vi.spyOn(kit.editor, 'undo');
+    render(<EditorScreen cardId="local-demo" assemblyFactory={assemblyFactoryFor(kit)} />);
+
+    await screen.findByRole('toolbar', { name: '모바일 편집 도구' });
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    expect(undo).toHaveBeenCalledOnce();
+
+    act(() => kit.runtimeStore.getState().setSelectedElementIds(['title']));
+    const sheet = await screen.findByRole('dialog', { name: '선택한 요소 편집' });
+    expect(screen.queryByRole('button', { name: '앞으로' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '뒤로' })).not.toBeInTheDocument();
+    for (const control of sheet.querySelectorAll('button, select, input:not([type="file"])')) {
+      expect(control).toHaveClass('property-touch-target');
+    }
+  });
+
+  it('workspace가 남은 grid 공간을 소유하고 Canvas frame을 4:5 containment로 제한한다', async () => {
+    installMatchMedia(820);
+    const kit = createEditorTestKit();
+    render(<EditorScreen cardId="local-demo" assemblyFactory={assemblyFactoryFor(kit)} />);
+
+    await screen.findByRole('button', { name: '편집 도구 열기' });
+    expect(screen.getByTestId('editor-workspace')).toHaveClass('min-h-0', 'overflow-hidden');
+    expect(screen.getByTestId('editor-canvas-viewport')).toHaveClass('min-h-0', 'flex-1');
+    expect(screen.getByTestId('editor-canvas-frame')).toHaveAttribute('data-layout-contract', '4:5-fit-container');
   });
 });
