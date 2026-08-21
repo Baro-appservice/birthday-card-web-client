@@ -5,7 +5,14 @@ import type {
   TransformSnapshot,
 } from '@/entities/design';
 import type { AssetGateway } from '@/features/editor/core/ports';
-import { Ellipse, FabricImage, Rect, Textbox, type FabricObject } from 'fabric';
+import {
+  controlsUtils,
+  Ellipse,
+  FabricImage,
+  Rect,
+  Textbox,
+  type FabricObject,
+} from 'fabric';
 
 import { setElementId } from './fabric-object-metadata';
 
@@ -81,9 +88,25 @@ function commonOptions(element: DesignElement) {
   };
 }
 
+function createTextControls() {
+  const textControls = controlsUtils.createTextboxDefaultControls();
+  const scaleControls = controlsUtils.createObjectDefaultControls();
+  return {
+    ...textControls,
+    // Keep Textbox's ml/mr width controls, but explicitly use the normal
+    // uniform object-scale controls on corners. Those transient scales are
+    // normalized into width + fontSize by TransformElementCommand.
+    tl: scaleControls.tl,
+    tr: scaleControls.tr,
+    bl: scaleControls.bl,
+    br: scaleControls.br,
+  };
+}
+
 function mapText(element: Extract<DesignElement, { type: 'text' }>): FabricObject {
   const textbox = new Textbox(element.text, {
     ...commonOptions(element),
+    controls: createTextControls(),
     width: element.width,
     fontFamily: APPROVED_FONT_FAMILIES.has(element.fontFamily)
       ? element.fontFamily
@@ -97,8 +120,6 @@ function mapText(element: Extract<DesignElement, { type: 'text' }>): FabricObjec
     scaleY: 1,
   });
 
-  // Textbox side controls resize the wrapping width. Corner controls scale the
-  // text uniformly at runtime; the Editor normalizes that scale into width + fontSize.
   textbox.setControlsVisibility({ mt: false, mb: false });
   return textbox;
 }
