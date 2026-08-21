@@ -8,7 +8,13 @@ export type EditorEvent =
       before: ElementTransformSnapshot;
       after: ElementTransformSnapshot;
     }
-  | { type: 'text:edited'; elementId: string; before: string; after: string };
+  | {
+      type: 'text:edited';
+      elementId: string;
+      before: string;
+      after: string;
+      historyGroup?: string;
+    };
 
 export interface EditorRenderer {
   mount(element: HTMLCanvasElement): void;
