@@ -88,11 +88,18 @@ async function runCleanupStep(step: () => void | Promise<void>): Promise<void> {
 async function disposeEditorAssembly(assembly: EditorAssembly): Promise<void> {
   if (disposedAssemblies.has(assembly)) return;
   disposedAssemblies.add(assembly);
-  await runCleanupStep(() => assembly.value.saveCoordinator.flush());
-  // Run GC while Design history and IndexedDB are still available. If the latest
-  // save failed, the emergency snapshot and in-memory history remain protected.
+
+  // Drain the Editor operation queue first. A mutation that was still rendering
+  // when unmount started may schedule a brand-new save only after it completes.
+  // Maintenance also runs GC while in-memory Design/history and IndexedDB are
+  // still alive, so assets needed by current state or Undo/Redo stay protected.
   await runCleanupStep(() => assembly.value.editor.flushMaintenance());
+
+  // Only now is the save queue stable. Flush the last Design scheduled by any
+  // operation drained above before disposing the coordinator.
+  await runCleanupStep(() => assembly.value.saveCoordinator.flush());
   await runCleanupStep(() => assembly.value.saveCoordinator.dispose());
+
   // Await Fabric Canvas.dispose() before revoking asset URLs and closing IndexedDB.
   await runCleanupStep(() => assembly.value.editor.close());
   await runCleanupStep(() => assembly.disposeAssetGateway());
