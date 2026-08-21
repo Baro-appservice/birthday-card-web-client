@@ -34,11 +34,17 @@ function TextContentInput({
   onCommit(text: string, historyGroup: string): Promise<void>;
 }) {
   const [draft, setDraft] = useState(selected.text);
+  const draftRef = useRef(selected.text);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submittedRef = useRef(selected.text);
   const historyGroupRef = useRef<string | null>(null);
   const focusedRef = useRef(false);
   const composingRef = useRef(false);
+
+  const replaceDraft = (value: string) => {
+    draftRef.current = value;
+    setDraft(value);
+  };
 
   const ensureHistoryGroup = () => {
     if (!historyGroupRef.current) {
@@ -61,7 +67,12 @@ function TextContentInput({
     try {
       await onCommit(value, historyGroup);
     } catch (error) {
-      if (submittedRef.current === value) submittedRef.current = previousSubmitted;
+      if (submittedRef.current === value) {
+        submittedRef.current = previousSubmitted;
+        // Do not erase newer typing when an older async commit fails. Only roll
+        // the visible draft back when it still represents the failed value.
+        if (draftRef.current === value) replaceDraft(previousSubmitted);
+      }
       throw error;
     }
   };
@@ -78,7 +89,7 @@ function TextContentInput({
 
   useEffect(() => {
     if (focusedRef.current) return;
-    setDraft(selected.text);
+    replaceDraft(selected.text);
     submittedRef.current = selected.text;
   }, [selected.id, selected.text]);
 
@@ -103,19 +114,19 @@ function TextContentInput({
       onCompositionEnd={(event) => {
         composingRef.current = false;
         const value = event.currentTarget.value;
-        setDraft(value);
+        replaceDraft(value);
         scheduleCommit(value);
       }}
       onChange={(event) => {
         const value = event.target.value;
-        setDraft(value);
+        replaceDraft(value);
         scheduleCommit(value);
       }}
       onBlur={() => {
         focusedRef.current = false;
         composingRef.current = false;
         const historyGroup = ensureHistoryGroup();
-        void commit(draft, historyGroup)
+        void commit(draftRef.current, historyGroup)
           .catch(() => undefined)
           .finally(() => {
             if (historyGroupRef.current === historyGroup) historyGroupRef.current = null;
