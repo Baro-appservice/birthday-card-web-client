@@ -15,17 +15,17 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop-chromium',
-      testIgnore: /editor-mobile\.spec\.ts/,
+      testIgnore: /editor-mobile.*\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile-chromium',
-      testMatch: /editor-mobile\.spec\.ts/,
+      testMatch: /editor-mobile.*\.spec\.ts/,
       use: { ...devices['Pixel 7'] },
     },
     {
       name: 'mobile-webkit',
-      testMatch: /editor-mobile\.spec\.ts/,
+      testMatch: /editor-mobile.*\.spec\.ts/,
       use: { ...devices['iPhone 13'] },
     },
   ],
