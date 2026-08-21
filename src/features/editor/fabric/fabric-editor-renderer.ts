@@ -153,6 +153,7 @@ export class FabricEditorRenderer implements EditorRenderer {
   private readonly renderedElements = new Map<string, DesignElement>();
   private renderGeneration = 0;
   private disposed = false;
+  private disposePromise: Promise<void> | null = null;
   private renderedSize: { width: number; height: number } | null = null;
   private renderedBackground: string | null = null;
 
@@ -161,7 +162,7 @@ export class FabricEditorRenderer implements EditorRenderer {
   mount(element: HTMLCanvasElement): void {
     this.assertUsable();
     if (this.canvas?.lowerCanvasEl === element) return;
-    this.releaseCanvas();
+    if (this.canvas) throw new Error('Fabric renderer가 이미 다른 Canvas에 mount되어 있습니다.');
     const canvas = new Canvas(element, {
       preserveObjectStacking: true,
       selection: false,
@@ -284,12 +285,27 @@ export class FabricEditorRenderer implements EditorRenderer {
     return () => { this.listeners.delete(listener); };
   }
 
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.renderGeneration += 1;
-    this.listeners.clear();
-    this.releaseCanvas();
+  dispose(): Promise<void> {
+    if (this.disposePromise) return this.disposePromise;
+    if (!this.disposed) {
+      this.disposed = true;
+      this.renderGeneration += 1;
+      this.listeners.clear();
+    }
+
+    this.eventAdapter?.dispose();
+    this.eventAdapter = undefined;
+    this.objectsById.clear();
+    this.renderedElements.clear();
+    this.renderedSize = null;
+    this.renderedBackground = null;
+    const canvas = this.canvas;
+    this.canvas = undefined;
+
+    this.disposePromise = canvas
+      ? Promise.resolve(canvas.dispose()).then(() => undefined)
+      : Promise.resolve();
+    return this.disposePromise;
   }
 
   private emit(event: EditorEvent): void {
@@ -309,17 +325,5 @@ export class FabricEditorRenderer implements EditorRenderer {
 
   private isCurrent(generation: number, canvas: Canvas): boolean {
     return !this.disposed && this.renderGeneration === generation && this.canvas === canvas;
-  }
-
-  private releaseCanvas(): void {
-    this.eventAdapter?.dispose();
-    this.eventAdapter = undefined;
-    this.objectsById.clear();
-    this.renderedElements.clear();
-    this.renderedSize = null;
-    this.renderedBackground = null;
-    const canvas = this.canvas;
-    this.canvas = undefined;
-    if (canvas) void canvas.dispose();
   }
 }
