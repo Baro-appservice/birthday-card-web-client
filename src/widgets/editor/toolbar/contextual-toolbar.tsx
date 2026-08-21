@@ -193,10 +193,12 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
     propagateError = false,
   ) => {
     try {
-      await editor.updateSelection(
-        { type: 'text', changes },
-        historyGroup ? { historyGroup } : undefined,
-      );
+      const patch = { type: 'text' as const, changes };
+      if (historyGroup) {
+        await editor.updateSelection(patch, { historyGroup });
+      } else {
+        await editor.updateSelection(patch);
+      }
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : '텍스트 서식을 바꾸지 못했습니다. 다시 시도해 주세요.');
