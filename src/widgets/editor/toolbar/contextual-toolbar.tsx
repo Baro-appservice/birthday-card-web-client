@@ -273,7 +273,22 @@ function ImageControls({ property }: { property: boolean }) {
       setError(message);
     }
   };
-  return <label className={`inline-flex ${property ? propertyTouchTargetClass : 'min-h-9'} cursor-pointer items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--surface-muted)] focus-within:ring-2 focus-within:ring-[var(--brand)]`}><span>사진 교체</span><input aria-label="교체할 사진 파일 선택" type="file" accept="image/png,image/jpeg,image/webp" className={`sr-only ${property ? propertyTouchTargetClass : ''}`} onChange={(event) => void replace(event.target.files?.[0])} /></label>;
+  return (
+    <label className={`inline-flex ${property ? propertyTouchTargetClass : 'min-h-9'} cursor-pointer items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--surface-muted)] focus-within:ring-2 focus-within:ring-[var(--brand)]`}>
+      <span>사진 교체</span>
+      <input
+        aria-label="교체할 사진 파일 선택"
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className={`sr-only ${property ? propertyTouchTargetClass : ''}`}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = '';
+          void replace(file);
+        }}
+      />
+    </label>
+  );
 }
 
 function ShapeControls({ selected, property }: { selected: Extract<DesignElement, { type: 'shape' }>; property: boolean }) {
