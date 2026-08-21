@@ -34,13 +34,43 @@ export function useEditorSession(cardId: string): EditorSession {
     void repository.load(cardId)
       .then((result) => {
         if (cancelled) return;
-        const emergency = readEmergencyDesign(cardId);
+        const emergencyResult = readEmergencyDesign(cardId);
+
+        if (emergencyResult.status === 'unsupported-version') {
+          const backup = result.status === 'loaded'
+            ? result.design
+            : result.status === 'recoverable'
+              ? result.backup
+              : null;
+          uiStore.getState().setRecoveryNotice({
+            reason: 'unsupported-version',
+            backup,
+          });
+          setLoadedCardId(cardId);
+          setStatus('recoverable');
+          return;
+        }
+
+        const emergency = emergencyResult.status === 'loaded' ? emergencyResult.record : null;
+
+        // Never let an older client silently overwrite a current document written
+        // by a newer Design version. A compatible emergency copy can still be
+        // offered as an explicit recovery source below.
+        if (result.status === 'recoverable' && result.reason === 'unsupported-version') {
+          uiStore.getState().setRecoveryNotice({
+            reason: result.reason,
+            backup: result.backup ?? emergency?.design ?? null,
+          });
+          setLoadedCardId(cardId);
+          setStatus('recoverable');
+          return;
+        }
 
         if (
           emergency
           && (result.status === 'empty'
-            || result.status === 'recoverable'
-            || emergency.updatedAt > (result.updatedAt ?? 0))
+            || (result.status === 'recoverable' && result.reason === 'corrupt')
+            || (result.status === 'loaded' && emergency.updatedAt > (result.updatedAt ?? 0)))
         ) {
           designStore.getState().replaceDesign(emergency.design);
           runtimeStore.getState().setActivePageId(emergency.design.pages[0]?.id ?? 'page-1');
@@ -52,6 +82,8 @@ export function useEditorSession(cardId: string): EditorSession {
           return;
         }
 
+        // At this point a compatible emergency snapshot can only be stale against
+        // a valid loaded current document, so it is safe to remove.
         if (emergency) clearEmergencyDesign(cardId);
 
         if (result.status === 'recoverable') {
