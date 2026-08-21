@@ -30,12 +30,13 @@ export class FabricEventAdapter {
   private readonly beforeTexts = new WeakMap<FabricObject, string>();
   private selection: string[] = [];
   private disposed = false;
+  private suppressSelectionEvents = 0;
 
   private readonly handlers = {
     selectionCreated: () => this.emitSelection(this.canvas.getActiveObjects()),
     selectionUpdated: () => this.emitSelection(this.canvas.getActiveObjects()),
     selectionCleared: () => this.emitSelection([]),
-    mouseDown: (event: FabricEvent) => this.captureTransform(event.target),
+    beforeTransform: (event: FabricEvent) => this.captureTransform(event.target, true),
     objectMoving: (event: FabricEvent) => this.captureTransform(event.target),
     objectScaling: (event: FabricEvent) => this.captureTransform(event.target),
     objectRotating: (event: FabricEvent) => this.captureTransform(event.target),
@@ -51,7 +52,7 @@ export class FabricEventAdapter {
     this.on('selection:created', this.handlers.selectionCreated);
     this.on('selection:updated', this.handlers.selectionUpdated);
     this.on('selection:cleared', this.handlers.selectionCleared);
-    this.on('mouse:down', this.handlers.mouseDown);
+    this.on('before:transform', this.handlers.beforeTransform);
     this.on('object:moving', this.handlers.objectMoving);
     this.on('object:scaling', this.handlers.objectScaling);
     this.on('object:rotating', this.handlers.objectRotating);
@@ -60,13 +61,22 @@ export class FabricEventAdapter {
     this.on('text:editing:exited', this.handlers.textEditingExited);
   }
 
+  runWithoutSelectionEvents<T>(operation: () => T): T {
+    this.suppressSelectionEvents += 1;
+    try {
+      return operation();
+    } finally {
+      this.suppressSelectionEvents -= 1;
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     this.off('selection:created', this.handlers.selectionCreated);
     this.off('selection:updated', this.handlers.selectionUpdated);
     this.off('selection:cleared', this.handlers.selectionCleared);
-    this.off('mouse:down', this.handlers.mouseDown);
+    this.off('before:transform', this.handlers.beforeTransform);
     this.off('object:moving', this.handlers.objectMoving);
     this.off('object:scaling', this.handlers.objectScaling);
     this.off('object:rotating', this.handlers.objectRotating);
@@ -84,14 +94,16 @@ export class FabricEventAdapter {
   }
 
   private emitSelection(objects: FabricObject[] | undefined): void {
+    if (this.suppressSelectionEvents > 0) return;
     const elementIds = firstElementId(objects);
     if (isSameSelection(this.selection, elementIds)) return;
     this.selection = elementIds;
     this.emit({ type: 'selection:changed', elementIds });
   }
 
-  private captureTransform(object: FabricObject | undefined): void {
-    if (!object || !getElementId(object) || this.beforeTransforms.has(object)) return;
+  private captureTransform(object: FabricObject | undefined, overwrite = false): void {
+    if (!object || !getElementId(object)) return;
+    if (!overwrite && this.beforeTransforms.has(object)) return;
     this.beforeTransforms.set(object, readObjectTransform(object));
   }
 
