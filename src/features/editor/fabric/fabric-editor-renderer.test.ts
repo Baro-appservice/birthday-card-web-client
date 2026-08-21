@@ -89,7 +89,7 @@ describe('FabricEditorRenderer', () => {
     renderer.dispose();
   });
 
-  it('같은 element 수정은 Fabric 객체 identity를 유지하고 Canvas 전체를 clear하지 않는다', async () => {
+  it('같은 element 수정은 Fabric 객체 identity를 유지하고 scale을 정규화한 채 Canvas 전체를 clear하지 않는다', async () => {
     const renderer = new FabricEditorRenderer(gateway);
     renderer.mount(canvasElement());
     const design = textDesign();
@@ -97,12 +97,16 @@ describe('FabricEditorRenderer', () => {
     await renderer.render(design);
     const canvas = fabricState.canvases.at(-1);
     const title = canvas.objects.find((object: any) => getElementId(object) === 'title');
+    title.set({ scaleX: 1.25, scaleY: 1.25 });
+    const updatedTitle = design.pages[0].elements.find((element) => element.id === 'title' && element.type === 'text');
+    if (!updatedTitle || updatedTitle.type !== 'text') throw new Error('title 텍스트가 없습니다.');
+    const expectedX = updatedTitle.x + 40;
     const updated: Design = {
       ...design,
       pages: [{
         ...design.pages[0],
         elements: design.pages[0].elements.map((element) => element.id === 'title' && element.type === 'text'
-          ? { ...element, text: '객체를 유지한 채 수정', color: '#123456', x: element.x + 40 }
+          ? { ...element, text: '객체를 유지한 채 수정', color: '#123456', x: expectedX }
           : element),
       }],
     };
@@ -111,8 +115,13 @@ describe('FabricEditorRenderer', () => {
 
     const renderedTitle = canvas.objects.find((object: any) => getElementId(object) === 'title');
     expect(renderedTitle).toBe(title);
-    expect(renderedTitle).toMatchObject({ text: '객체를 유지한 채 수정', fill: '#123456' });
-    expect(renderedTitle.left).toBe((title?.left ?? 0));
+    expect(renderedTitle).toMatchObject({
+      text: '객체를 유지한 채 수정',
+      fill: '#123456',
+      left: expectedX,
+      scaleX: 1,
+      scaleY: 1,
+    });
     expect(canvas.clear).not.toHaveBeenCalled();
     renderer.dispose();
   });
