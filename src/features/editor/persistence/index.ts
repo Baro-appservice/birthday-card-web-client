@@ -10,6 +10,8 @@ export {
 export { BrowserAssetGateway } from './browser/browser-asset-gateway';
 export {
   clearEmergencyDesign,
+  type EmergencyDesignLoadResult,
+  type EmergencyDesignRecord,
   readEmergencyDesign,
   writeEmergencyDesign,
 } from './browser/emergency-design-store';
