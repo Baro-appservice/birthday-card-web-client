@@ -22,6 +22,10 @@ function cloneDesign(design: Design): Design {
   return structuredClone(design);
 }
 
+function validTimestamp(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
 export class IndexedDbDesignRepository implements DesignRepository {
   constructor(private readonly database: IDBDatabase) {}
 
@@ -39,12 +43,13 @@ export class IndexedDbDesignRepository implements DesignRepository {
     await transactionDone(transaction);
     if (!record) return { status: 'empty' };
 
+    const updatedAt = validTimestamp(record.updatedAt);
     const current = migratePersistedDesign(record.current);
     if (current.status === 'ok') {
       return {
         status: 'loaded',
         design: cloneDesign(current.design),
-        updatedAt: record.updatedAt,
+        updatedAt,
         needsSave: current.changed,
       };
     }
@@ -54,7 +59,7 @@ export class IndexedDbDesignRepository implements DesignRepository {
       status: 'recoverable',
       reason: current.reason,
       backup: backup.status === 'ok' ? cloneDesign(backup.design) : null,
-      updatedAt: record.updatedAt,
+      updatedAt,
     };
   }
 
@@ -68,19 +73,39 @@ export class IndexedDbDesignRepository implements DesignRepository {
     }
 
     const store = transaction.objectStore(DESIGN_RECORDS_STORE);
-    const previous = await requestToPromise<DesignRecord | undefined>(store.get(cardId));
-    const previousCurrent = migratePersistedDesign(previous?.current);
-    const previousBackup = migratePersistedDesign(previous?.backup);
-    store.put({
-      cardId,
-      current,
-      backup: previousCurrent.status === 'ok'
-        ? cloneDesign(previousCurrent.design)
-        : previousBackup.status === 'ok'
-          ? cloneDesign(previousBackup.design)
-          : null,
-      updatedAt: Date.now(),
-    } satisfies DesignRecord);
-    await transactionDone(transaction);
+    let processingError: { value: unknown } | null = null;
+    const request = store.get(cardId);
+
+    // Safari/WebKit may auto-commit an IndexedDB transaction as soon as the
+    // request callback returns to the event loop. Queue the dependent put
+    // synchronously inside onsuccess rather than awaiting get() first.
+    request.onsuccess = () => {
+      try {
+        const previous = request.result as DesignRecord | undefined;
+        const previousCurrent = migratePersistedDesign(previous?.current);
+        const previousBackup = migratePersistedDesign(previous?.backup);
+        store.put({
+          cardId,
+          current,
+          backup: previousCurrent.status === 'ok'
+            ? cloneDesign(previousCurrent.design)
+            : previousBackup.status === 'ok'
+              ? cloneDesign(previousBackup.design)
+              : null,
+          updatedAt: Date.now(),
+        } satisfies DesignRecord);
+      } catch (error) {
+        processingError = { value: error };
+        try { transaction.abort(); } catch { /* transaction may already be aborting */ }
+      }
+    };
+
+    try {
+      await transactionDone(transaction);
+    } catch (error) {
+      if (processingError) throw processingError.value;
+      throw error;
+    }
+    if (processingError) throw processingError.value;
   }
 }
