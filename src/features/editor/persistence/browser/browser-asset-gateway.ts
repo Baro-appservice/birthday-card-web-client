@@ -234,29 +234,62 @@ export class BrowserAssetGateway implements AssetGateway {
 
     const designStore = transaction.objectStore(DESIGN_RECORDS_STORE);
     const assetStore = transaction.objectStore(ASSET_RECORDS_STORE);
-    const [records, assetKeys] = await Promise.all([
-      requestToPromise<RawDesignRecord[]>(designStore.getAll()),
-      requestToPromise<IDBValidKey[]>(assetStore.getAllKeys()),
-    ]);
-
-    for (const record of records) {
-      collectUnknownAssetIds(record.current, referenced);
-      collectUnknownAssetIds(record.backup, referenced);
-    }
-
+    const designRequest = designStore.getAll();
+    const assetKeysRequest = assetStore.getAllKeys();
     const deleted: string[] = [];
-    for (const key of assetKeys) {
-      if (typeof key !== 'string') continue;
-      if (
-        referenced.has(key)
-        || this.resolutionPromises.has(key)
-        || this.removalPromises.has(key)
-      ) continue;
-      assetStore.delete(key);
-      deleted.push(key);
-    }
+    let records: RawDesignRecord[] | null = null;
+    let assetKeys: IDBValidKey[] | null = null;
+    let processingError: { value: unknown } | null = null;
+    let deletesQueued = false;
 
-    await transactionDone(transaction);
+    const abortWith = (error: unknown) => {
+      if (!processingError) processingError = { value: error };
+      try { transaction.abort(); } catch { /* transaction may already be aborting */ }
+    };
+
+    const queueDeletesWhenReady = () => {
+      if (deletesQueued || processingError || records === null || assetKeys === null) return;
+      deletesQueued = true;
+      try {
+        for (const record of records) {
+          collectUnknownAssetIds(record.current, referenced);
+          collectUnknownAssetIds(record.backup, referenced);
+        }
+
+        for (const key of assetKeys) {
+          if (typeof key !== 'string') continue;
+          if (
+            referenced.has(key)
+            || this.resolutionPromises.has(key)
+            || this.removalPromises.has(key)
+          ) continue;
+          assetStore.delete(key);
+          deleted.push(key);
+        }
+      } catch (error) {
+        abortWith(error);
+      }
+    };
+
+    // Queue dependent deletes from inside request success callbacks. Awaiting the
+    // reads before issuing writes can make Safari/WebKit auto-commit the tx.
+    designRequest.onsuccess = () => {
+      records = designRequest.result as RawDesignRecord[];
+      queueDeletesWhenReady();
+    };
+    assetKeysRequest.onsuccess = () => {
+      assetKeys = assetKeysRequest.result;
+      queueDeletesWhenReady();
+    };
+
+    try {
+      await transactionDone(transaction);
+    } catch (error) {
+      if (processingError) throw processingError.value;
+      throw error;
+    }
+    if (processingError) throw processingError.value;
+
     for (const assetId of deleted) {
       this.removedAssetIds.add(assetId);
       this.revoke(assetId);
@@ -314,14 +347,34 @@ export class BrowserAssetGateway implements AssetGateway {
   private async removeUploadedAsset(assetId: string): Promise<void> {
     const transaction = this.writeTransaction();
     const store = transaction.objectStore(ASSET_RECORDS_STORE);
-    const record = await requestToPromise<AssetRecord | undefined>(store.get(assetId));
-    if (!record) {
-      transaction.abort();
-      await transactionDone(transaction).catch(() => undefined);
-      throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
+    const request = store.get(assetId);
+    let missing = false;
+    let processingError: { value: unknown } | null = null;
+
+    request.onsuccess = () => {
+      if (!request.result) {
+        missing = true;
+        try { transaction.abort(); } catch { /* transaction may already be aborting */ }
+        return;
+      }
+      try {
+        store.delete(assetId);
+      } catch (error) {
+        processingError = { value: error };
+        try { transaction.abort(); } catch { /* transaction may already be aborting */ }
+      }
+    };
+
+    try {
+      await transactionDone(transaction);
+    } catch (error) {
+      if (missing) throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
+      if (processingError) throw processingError.value;
+      throw error;
     }
-    store.delete(assetId);
-    await transactionDone(transaction);
+    if (missing) throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
+    if (processingError) throw processingError.value;
+
     this.removedAssetIds.add(assetId);
     this.revoke(assetId);
   }
