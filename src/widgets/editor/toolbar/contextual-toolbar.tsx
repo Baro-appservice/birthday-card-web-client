@@ -37,6 +37,7 @@ function TextContentInput({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submittedRef = useRef(selected.text);
   const historyGroupRef = useRef<string | null>(null);
+  const focusedRef = useRef(false);
 
   const ensureHistoryGroup = () => {
     if (!historyGroupRef.current) {
@@ -59,7 +60,7 @@ function TextContentInput({
     try {
       await onCommit(value, historyGroup);
     } catch (error) {
-      submittedRef.current = previousSubmitted;
+      if (submittedRef.current === value) submittedRef.current = previousSubmitted;
       throw error;
     }
   };
@@ -74,6 +75,7 @@ function TextContentInput({
   };
 
   useEffect(() => {
+    if (focusedRef.current) return;
     setDraft(selected.text);
     submittedRef.current = selected.text;
   }, [selected.id, selected.text]);
@@ -89,6 +91,7 @@ function TextContentInput({
       type="text"
       value={draft}
       onFocus={() => {
+        focusedRef.current = true;
         historyGroupRef.current = createTextHistoryGroup(selected.id);
       }}
       onChange={(event) => {
@@ -97,6 +100,7 @@ function TextContentInput({
         scheduleCommit(value);
       }}
       onBlur={() => {
+        focusedRef.current = false;
         const historyGroup = ensureHistoryGroup();
         void commit(draft, historyGroup).finally(() => {
           if (historyGroupRef.current === historyGroup) historyGroupRef.current = null;
