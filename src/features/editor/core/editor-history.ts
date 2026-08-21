@@ -10,8 +10,15 @@ export class EditorHistory {
   private redoStack: EditorCommand[] = [];
 
   execute(command: EditorCommand): void {
+    const previous = this.undoStack.at(-1);
+    const merged = previous?.mergeWith?.(command) ?? null;
+
     command.execute();
-    this.undoStack.push(command);
+    if (merged && this.undoStack.length > 0) {
+      this.undoStack[this.undoStack.length - 1] = merged;
+    } else {
+      this.undoStack.push(command);
+    }
     this.redoStack = [];
   }
 
