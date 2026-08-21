@@ -8,7 +8,6 @@ import {
   readDesignRecord,
   readSavedDesign,
   seedDesignRecord,
-  resizeElementFromBottomRight,
   waitForEditorReady,
   waitForInitialDesignSave,
   type StoredDesign,
@@ -65,6 +64,34 @@ test('Shift와 marquee는 사용자 다중 선택이나 저장되지 않는 grou
   expect(findElement(await readSavedDesign(page, cardId), 'title').x).toBeGreaterThan(beforeMarqueeTitle.x);
 });
 
+test('한 번의 텍스트 입력 세션은 여러 debounce commit이 발생해도 Undo 한 번으로 되돌린다', async ({ page }) => {
+  const cardId = 'e2e-text-history-session';
+  await page.goto(`/editor/${cardId}`);
+  await waitForEditorReady(page);
+  await waitForInitialDesignSave(page, cardId);
+  const originalText = findElement(await readSavedDesign(page, cardId), 'title').text;
+  const changedText = 'birthday edit';
+
+  await page.getByRole('button', { name: '레이어' }).click();
+  await page.getByRole('button', { name: '오늘은 제 생일이에요! 레이어 선택' }).click();
+  const input = page.getByRole('textbox', { name: '선택한 텍스트 내용' });
+  await input.click();
+  await input.fill('');
+  await input.pressSequentially(changedText, { delay: 180 });
+  await input.press('Tab');
+
+  await expect.poll(async () => findElement(await readSavedDesign(page, cardId), 'title').text)
+    .toBe(changedText);
+
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  await expect.poll(async () => findElement(await readSavedDesign(page, cardId), 'title').text)
+    .toBe(originalText);
+
+  await page.getByRole('button', { name: '다시 실행' }).click();
+  await expect.poll(async () => findElement(await readSavedDesign(page, cardId), 'title').text)
+    .toBe(changedText);
+});
+
 test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', async ({ page }) => {
   const cardId = 'e2e-desktop-flow';
   const changedText = '올해도 제 생일을 축하해 주세요!';
@@ -116,13 +143,24 @@ test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', 
   ).x).toBe(movedX);
 
   await page.getByRole('button', { name: `${changedText} 레이어 선택` }).click();
-  const beforeResize = findElement(await readSavedDesign(page, cardId), 'title');
-  await resizeElementFromBottomRight(page, beforeResize, { width: 140, height: 90 });
-  await expect.poll(async () => {
-    const title = findElement(await readSavedDesign(page, cardId), 'title');
-    return title.width > beforeResize.width && title.height > beforeResize.height;
-  }).toBe(true);
+  const beforeTypography = findElement(await readSavedDesign(page, cardId), 'title');
+  if (beforeTypography.fontSize === undefined) throw new Error('저장된 title fontSize가 없습니다.');
+  const fontSizeInput = page.getByRole('spinbutton', { name: '글자 크기' });
+  await fontSizeInput.fill('120');
+  await fontSizeInput.press('Tab');
+
+  await expect.poll(async () => findElement(await readSavedDesign(page, cardId), 'title').fontSize)
+    .toBe(120);
   const resizedTitle = findElement(await readSavedDesign(page, cardId), 'title');
+  expect(resizedTitle.width).toBeCloseTo(beforeTypography.width, 8);
+  expect(resizedTitle.height).toBe(beforeTypography.height);
+
+  await page.getByRole('button', { name: '실행 취소' }).click();
+  await expect.poll(async () => findElement(await readSavedDesign(page, cardId), 'title').fontSize)
+    .toBe(beforeTypography.fontSize);
+  await page.getByRole('button', { name: '다시 실행' }).click();
+  await expect.poll(async () => findElement(await readSavedDesign(page, cardId), 'title').fontSize)
+    .toBe(120);
 
   await page.reload();
   await waitForEditorReady(page);
@@ -131,7 +169,8 @@ test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', 
   const restoredTitle = findElement(await readSavedDesign(page, cardId), 'title');
   expect(restoredTitle.x).toBeCloseTo(resizedTitle.x, 8);
   expect(restoredTitle.width).toBeCloseTo(resizedTitle.width, 8);
-  expect(restoredTitle.height).toBeCloseTo(resizedTitle.height, 8);
+  expect(restoredTitle.height).toBe(resizedTitle.height);
+  expect(restoredTitle.fontSize).toBe(120);
 
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PNG 저장' }).click();
@@ -142,6 +181,8 @@ test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', 
   const serialized = JSON.stringify(await readSavedDesign(page, cardId));
   expect(serialized).not.toContain('blob:');
   expect(serialized).not.toContain('fabric');
+  expect(serialized).not.toContain('scaleX');
+  expect(serialized).not.toContain('scaleY');
 });
 
 test('손상된 현재 카드는 선택 전까지 유지하고 직전 정상 카드로 복구한다', async ({ page }) => {
