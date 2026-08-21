@@ -270,7 +270,7 @@ function TextControls({
     <div className="flex flex-wrap items-center gap-2">
       <label className="sr-only" htmlFor="selected-text-content">선택한 텍스트 내용</label>
       <TextContentInput
-        key={selected.id}
+        key={`${pageId}:${selected.id}`}
         selected={selected}
         property={property}
         onCommit={commitText}
@@ -281,7 +281,7 @@ function TextControls({
       </select>
       <label className="sr-only" htmlFor="font-size">글자 크기</label>
       <FontSizeInput
-        key={`${selected.id}:${selected.fontSize}`}
+        key={`${pageId}:${selected.id}:${selected.fontSize}`}
         fontSize={selected.fontSize}
         property={property}
         onCommit={(fontSize) => update({ fontSize }, undefined, true)}
