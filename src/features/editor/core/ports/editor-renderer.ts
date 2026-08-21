@@ -21,5 +21,5 @@ export interface EditorRenderer {
   render(design: Design): Promise<void>;
   select(elementIds: string[]): void;
   subscribe(listener: (event: EditorEvent) => void): () => void;
-  dispose(): void;
+  dispose(): void | Promise<void>;
 }
