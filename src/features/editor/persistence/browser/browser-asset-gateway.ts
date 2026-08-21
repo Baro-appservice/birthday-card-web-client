@@ -1,10 +1,13 @@
+import { collectUnknownAssetIds } from '@/entities/design';
 import type { AssetGateway, AssetReference } from '@/features/editor/core/ports';
 
 import {
   ASSET_RECORDS_STORE,
+  DESIGN_RECORDS_STORE,
   requestToPromise,
   transactionDone,
 } from './editor-db';
+import { EMERGENCY_DESIGN_PREFIX } from './emergency-design-store';
 
 const BUILTIN_ASSETS = {
   'builtin:birthday-photo': '/assets/birthday-placeholder.svg',
@@ -49,6 +52,11 @@ interface AssetRecord {
   width: number;
   height: number;
   createdAt: number;
+}
+
+interface RawDesignRecord {
+  current?: unknown;
+  backup?: unknown;
 }
 
 function isValidDimensions(dimensions: AssetDimensions): boolean {
@@ -104,6 +112,27 @@ async function decodeImageDimensions(file: Blob): Promise<AssetDimensions> {
 function isConstraintError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'name' in error
     && error.name === 'ConstraintError';
+}
+
+function collectEmergencyAssetIds(target: Set<string>): void {
+  if (typeof window === 'undefined') return;
+  let storage: Storage;
+  try {
+    storage = window.localStorage;
+  } catch {
+    return;
+  }
+
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (!key?.startsWith(EMERGENCY_DESIGN_PREFIX)) continue;
+    try {
+      const raw = storage.getItem(key);
+      if (raw) collectUnknownAssetIds(JSON.parse(raw), target);
+    } catch {
+      // Invalid recovery records are ignored by GC rather than making cleanup destructive.
+    }
+  }
 }
 
 export class BrowserAssetGateway implements AssetGateway {
@@ -188,19 +217,50 @@ export class BrowserAssetGateway implements AssetGateway {
     }
   }
 
-  private async removeUploadedAsset(assetId: string): Promise<void> {
-    const transaction = this.writeTransaction();
-    const store = transaction.objectStore(ASSET_RECORDS_STORE);
-    const record = await requestToPromise<AssetRecord | undefined>(store.get(assetId));
-    if (!record) {
-      transaction.abort();
-      await transactionDone(transaction).catch(() => undefined);
-      throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
+  async garbageCollect(protectedAssetIds: ReadonlySet<string>): Promise<void> {
+    this.assertActive();
+    const referenced = new Set(protectedAssetIds);
+    collectEmergencyAssetIds(referenced);
+
+    let transaction: IDBTransaction;
+    try {
+      transaction = this.database.transaction(
+        [DESIGN_RECORDS_STORE, ASSET_RECORDS_STORE],
+        'readwrite',
+      );
+    } catch (error) {
+      throw new Error('Asset 정리용 저장소를 열 수 없습니다.', { cause: error });
     }
-    store.delete(assetId);
+
+    const designStore = transaction.objectStore(DESIGN_RECORDS_STORE);
+    const assetStore = transaction.objectStore(ASSET_RECORDS_STORE);
+    const [records, assetKeys] = await Promise.all([
+      requestToPromise<RawDesignRecord[]>(designStore.getAll()),
+      requestToPromise<IDBValidKey[]>(assetStore.getAllKeys()),
+    ]);
+
+    for (const record of records) {
+      collectUnknownAssetIds(record.current, referenced);
+      collectUnknownAssetIds(record.backup, referenced);
+    }
+
+    const deleted: string[] = [];
+    for (const key of assetKeys) {
+      if (typeof key !== 'string') continue;
+      if (
+        referenced.has(key)
+        || this.resolutionPromises.has(key)
+        || this.removalPromises.has(key)
+      ) continue;
+      assetStore.delete(key);
+      deleted.push(key);
+    }
+
     await transactionDone(transaction);
-    this.removedAssetIds.add(assetId);
-    this.revoke(assetId);
+    for (const assetId of deleted) {
+      this.removedAssetIds.add(assetId);
+      this.revoke(assetId);
+    }
   }
 
   dispose(): void {
@@ -241,6 +301,7 @@ export class BrowserAssetGateway implements AssetGateway {
       } satisfies AssetRecord);
       try {
         await Promise.all([requestToPromise(request), transactionDone(transaction)]);
+        this.removedAssetIds.delete(asset.id);
         return asset;
       } catch (error) {
         if (isConstraintError(error) && attempt + 1 < MAX_ID_GENERATION_ATTEMPTS) continue;
@@ -248,6 +309,21 @@ export class BrowserAssetGateway implements AssetGateway {
       }
     }
     throw new Error('고유한 Asset ID를 만들 수 없습니다.');
+  }
+
+  private async removeUploadedAsset(assetId: string): Promise<void> {
+    const transaction = this.writeTransaction();
+    const store = transaction.objectStore(ASSET_RECORDS_STORE);
+    const record = await requestToPromise<AssetRecord | undefined>(store.get(assetId));
+    if (!record) {
+      transaction.abort();
+      await transactionDone(transaction).catch(() => undefined);
+      throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
+    }
+    store.delete(assetId);
+    await transactionDone(transaction);
+    this.removedAssetIds.add(assetId);
+    this.revoke(assetId);
   }
 
   private async resolveUploadedUrl(assetId: string): Promise<string> {
