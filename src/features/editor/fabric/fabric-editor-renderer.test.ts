@@ -18,6 +18,21 @@ vi.mock('fabric', async (importOriginal) => {
     handlers = new Map<string, (event: Record<string, unknown>) => void>();
     backgroundColor: string | undefined;
     add = vi.fn((...objects: any[]) => { this.objects.push(...objects); return this; });
+    remove = vi.fn((...objects: any[]) => {
+      const removed = new Set(objects);
+      this.objects = this.objects.filter((object) => !removed.has(object));
+      this.activeObjects = this.activeObjects.filter((object) => !removed.has(object));
+      return objects;
+    });
+    moveObjectTo = vi.fn((object: any, index: number) => {
+      const currentIndex = this.objects.indexOf(object);
+      if (currentIndex < 0) return false;
+      const boundedIndex = Math.max(0, Math.min(index, this.objects.length - 1));
+      if (currentIndex === boundedIndex) return false;
+      this.objects.splice(currentIndex, 1);
+      this.objects.splice(boundedIndex, 0, object);
+      return true;
+    });
     clear = vi.fn(() => { this.objects = []; this.activeObjects = []; return this; });
     setDimensions = vi.fn();
     requestRenderAll = vi.fn();
@@ -71,6 +86,34 @@ describe('FabricEditorRenderer', () => {
 
     const canvas = fabricState.canvases.at(-1);
     expect(canvas.activeObjects.map(getElementId)).toEqual(['title']);
+    renderer.dispose();
+  });
+
+  it('같은 element 수정은 Fabric 객체 identity를 유지하고 Canvas 전체를 clear하지 않는다', async () => {
+    const renderer = new FabricEditorRenderer(gateway);
+    renderer.mount(canvasElement());
+    const design = textDesign();
+
+    await renderer.render(design);
+    const canvas = fabricState.canvases.at(-1);
+    const title = canvas.objects.find((object: any) => getElementId(object) === 'title');
+    const updated: Design = {
+      ...design,
+      pages: [{
+        ...design.pages[0],
+        elements: design.pages[0].elements.map((element) => element.id === 'title' && element.type === 'text'
+          ? { ...element, text: '객체를 유지한 채 수정', color: '#123456', x: element.x + 40 }
+          : element),
+      }],
+    };
+
+    await renderer.render(updated);
+
+    const renderedTitle = canvas.objects.find((object: any) => getElementId(object) === 'title');
+    expect(renderedTitle).toBe(title);
+    expect(renderedTitle).toMatchObject({ text: '객체를 유지한 채 수정', fill: '#123456' });
+    expect(renderedTitle.left).toBe((title?.left ?? 0));
+    expect(canvas.clear).not.toHaveBeenCalled();
     renderer.dispose();
   });
 
