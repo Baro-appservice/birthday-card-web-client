@@ -2,19 +2,16 @@ import { expect, test } from '@playwright/test';
 
 import {
   expectPngDimensions,
+  dragElementOnCanvas,
   findElement,
   readDesignRecord,
   readSavedDesign,
   seedDesignRecord,
+  resizeElementFromBottomRight,
   waitForEditorReady,
   waitForInitialDesignSave,
   type StoredDesign,
 } from './editor-helpers';
-
-const PHOTO_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-  'base64',
-);
 
 test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', async ({ page }) => {
   const cardId = 'e2e-desktop-flow';
@@ -34,7 +31,7 @@ test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', 
   await page.getByLabel('사진 파일 선택').setInputFiles({
     name: 'birthday.png',
     mimeType: 'image/png',
-    buffer: PHOTO_PNG,
+    buffer: await page.screenshot({ type: 'png' }),
   });
   await expect.poll(async () => {
     const design = await readSavedDesign(page, cardId);
@@ -45,18 +42,8 @@ test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', 
 
   await page.getByRole('tab', { name: '레이어' }).click();
   await page.getByRole('button', { name: `${changedText} 레이어 선택` }).click();
-  const canvas = page.getByTestId('editor-canvas-frame');
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error('Canvas 위치를 찾을 수 없습니다.');
-  const scale = box.width / 1080;
-  const start = {
-    x: box.x + (130 + 410) * scale,
-    y: box.y + (130 + 65) * scale,
-  };
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  await page.mouse.move(start.x + 70, start.y + 35, { steps: 8 });
-  await page.mouse.up();
+  const originalTitle = findElement(await readSavedDesign(page, cardId), 'title');
+  await dragElementOnCanvas(page, originalTitle, { x: 120, y: 60 });
 
   await expect.poll(async () => findElement(
     await readSavedDesign(page, cardId),
@@ -76,11 +63,23 @@ test('자기 생일 카드를 편집하고 저장·복원·다운로드한다', 
     'title',
   ).x).toBe(movedX);
 
+  await page.getByRole('button', { name: `${changedText} 레이어 선택` }).click();
+  const beforeResize = findElement(await readSavedDesign(page, cardId), 'title');
+  await resizeElementFromBottomRight(page, beforeResize, { width: 140, height: 90 });
+  await expect.poll(async () => {
+    const title = findElement(await readSavedDesign(page, cardId), 'title');
+    return title.width > beforeResize.width && title.height > beforeResize.height;
+  }).toBe(true);
+  const resizedTitle = findElement(await readSavedDesign(page, cardId), 'title');
+
   await page.reload();
   await waitForEditorReady(page);
   await page.getByRole('tab', { name: '레이어' }).click();
   await expect(page.getByRole('button', { name: `${changedText} 레이어 선택` })).toBeVisible();
-  expect(findElement(await readSavedDesign(page, cardId), 'title').x).toBe(movedX);
+  const restoredTitle = findElement(await readSavedDesign(page, cardId), 'title');
+  expect(restoredTitle.x).toBeCloseTo(resizedTitle.x, 8);
+  expect(restoredTitle.width).toBeCloseTo(resizedTitle.width, 8);
+  expect(restoredTitle.height).toBeCloseTo(resizedTitle.height, 8);
 
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'PNG 저장' }).click();

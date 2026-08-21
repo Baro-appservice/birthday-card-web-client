@@ -108,6 +108,21 @@ describe('desktop editor tools', () => {
     expect(screen.getByRole('status')).toHaveTextContent('저장 실패 · 다시 시도');
   });
 
+  it('저장 retry는 operation 오류를 지우지 않고 save 채널만 사용한다', async () => {
+    const user = userEvent.setup();
+    const kit = createEditorTestKit();
+    kit.uiStore.getState().setError('PNG export failed');
+    kit.uiStore.getState().setSaveError('quota exceeded');
+    kit.uiStore.getState().setSaveStatus('error');
+    render(<><EditorTopbar cardId="local-demo" /><Toast /></>, { wrapper: kit.wrapper });
+
+    await user.click(screen.getByRole('button', { name: '다시 시도' }));
+
+    expect(kit.saveCoordinator.retry).toHaveBeenCalledOnce();
+    expect(kit.uiStore.getState().error).toBe('PNG export failed');
+    expect(screen.getByRole('alert')).toHaveTextContent('PNG export failed');
+  });
+
   it('PNG 내보내기 실패는 Design을 바꾸지 않고 중앙 Toast로 알린다', async () => {
     const user = userEvent.setup();
     const kit = createEditorTestKit();

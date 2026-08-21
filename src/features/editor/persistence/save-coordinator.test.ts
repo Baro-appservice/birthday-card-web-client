@@ -47,7 +47,7 @@ describe('SaveCoordinator', () => {
 
     expect(save).toHaveBeenCalledTimes(2);
     expect(uiStore.getState().saveStatus).toBe('saved');
-    expect(uiStore.getState().error).toBeNull();
+    expect(uiStore.getState().saveError).toBeNull();
   });
 
   it('저장 중 새 변경이 예약되면 오래된 실패가 최신 저장 상태를 덮어쓰지 않는다', async () => {
@@ -159,7 +159,31 @@ describe('SaveCoordinator', () => {
 
     expect(save).toHaveBeenLastCalledWith('local-demo', second);
     expect(uiStore.getState().saveStatus).toBe('error');
-    expect(uiStore.getState().error).toBe('B failed');
+    expect(uiStore.getState().saveError).toBe('B failed');
+  });
+
+  it('retry는 operation 오류를 보존하고 saveError만 관리한다', async () => {
+    const save = vi.fn()
+      .mockRejectedValueOnce(new Error('quota exceeded'))
+      .mockResolvedValueOnce(undefined);
+    const uiStore = createEditorUiStore();
+    const coordinator = new SaveCoordinator('local-demo', createRepository(save), uiStore);
+    uiStore.getState().setError('PNG export failed');
+
+    coordinator.schedule(createSampleDesign());
+    await vi.advanceTimersByTimeAsync(600);
+    expect(uiStore.getState()).toMatchObject({
+      error: 'PNG export failed',
+      saveError: 'quota exceeded',
+      saveStatus: 'error',
+    });
+
+    await coordinator.retry();
+    expect(uiStore.getState()).toMatchObject({
+      error: 'PNG export failed',
+      saveError: null,
+      saveStatus: 'saved',
+    });
   });
 
   it('예약 뒤 원본 Design을 변경해도 저장 snapshot은 변경되지 않는다', async () => {

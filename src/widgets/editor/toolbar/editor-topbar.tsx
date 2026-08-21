@@ -16,6 +16,7 @@ export function EditorTopbar({ cardId, compact = false }: { cardId: string; comp
   const saveCoordinator = useEditorSaveCoordinator();
   const saveStatus = useEditorUiStore((state) => state.saveStatus);
   const setError = useEditorUiStore((state) => state.setError);
+  const setSaveError = useEditorUiStore((state) => state.setSaveError);
   const run = async (action: () => Promise<void>, fallback: string) => {
     try {
       await action();
@@ -33,6 +34,13 @@ export function EditorTopbar({ cardId, compact = false }: { cardId: string; comp
       setError(error instanceof Error ? error.message : 'PNG를 저장하지 못했습니다. 다시 시도해 주세요.');
     }
   };
+  const retrySave = async () => {
+    try {
+      await saveCoordinator.retry();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '저장을 다시 시도하지 못했습니다.');
+    }
+  };
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-3 sm:h-16 sm:px-5">
@@ -40,7 +48,7 @@ export function EditorTopbar({ cardId, compact = false }: { cardId: string; comp
         <span aria-hidden="true" className="grid size-8 place-items-center rounded-lg bg-[var(--brand)] font-[ui-rounded,Arial_Rounded_MT_Bold,system-ui] text-sm text-white">B</span>
         <h1 className={compact ? 'sr-only' : 'font-[ui-rounded,Arial_Rounded_MT_Bold,system-ui] text-base tracking-tight text-[var(--ink)]'}>Birthday canvas</h1>
         <span role="status" aria-live="polite" aria-atomic="true" className={`font-mono text-xs ${compact ? '' : 'border-l border-[var(--border)] pl-3'} ${saveStatus === 'error' ? 'text-[var(--danger)]' : saveStatus === 'saving' ? 'text-[var(--ink-muted)]' : 'text-[var(--success)]'}`}>{saveLabels[saveStatus]}</span>
-        {saveStatus === 'error' ? <button type="button" onClick={() => void run(() => saveCoordinator.retry(), '저장을 다시 시도하지 못했습니다.')} className="text-xs font-semibold text-[var(--danger)] underline decoration-dotted underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]">다시 시도</button> : null}
+        {saveStatus === 'error' ? <button type="button" onClick={() => void retrySave()} className="text-xs font-semibold text-[var(--danger)] underline decoration-dotted underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]">다시 시도</button> : null}
       </div>
       <div className="flex items-center gap-1">
         <IconButton aria-label="실행 취소" className={compact ? 'size-11' : ''} onClick={() => void run(() => editor.undo(), '실행을 취소하지 못했습니다.')}>↶</IconButton>

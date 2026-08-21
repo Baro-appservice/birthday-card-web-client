@@ -125,20 +125,23 @@ describe('Editor UI Store', () => {
       mobileSheet: null,
       saveStatus: 'saved',
       error: null,
+      saveError: null,
       recoveryNotice: null,
     });
 
     store.getState().setActivePanel('layers');
     store.getState().setMobileSheet('text');
     store.getState().setSaveStatus('saving');
-    store.getState().setError('저장에 실패했습니다.');
+    store.getState().setError('내보내기에 실패했습니다.');
+    store.getState().setSaveError('저장에 실패했습니다.');
     store.getState().setRecoveryNotice(recoveryNotice);
 
     expect(store.getState()).toMatchObject({
       activePanel: 'layers',
       mobileSheet: 'text',
       saveStatus: 'saving',
-      error: '저장에 실패했습니다.',
+      error: '내보내기에 실패했습니다.',
+      saveError: '저장에 실패했습니다.',
       recoveryNotice,
     });
   });

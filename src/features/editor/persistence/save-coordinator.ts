@@ -33,7 +33,7 @@ export class SaveCoordinator {
     this.pending = { design: cloneDesign(design), revision: this.revision };
     this.lastFailed = null;
     this.uiStore.getState().setSaveStatus('saving');
-    this.uiStore.getState().setError(null);
+    this.uiStore.getState().setSaveError(null);
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -64,7 +64,7 @@ export class SaveCoordinator {
       this.pending = { design: cloneDesign(this.lastFailed), revision: this.revision };
       this.lastFailed = null;
       this.uiStore.getState().setSaveStatus('saving');
-      this.uiStore.getState().setError(null);
+      this.uiStore.getState().setSaveError(null);
     }
     await this.flush();
   }
@@ -92,14 +92,14 @@ export class SaveCoordinator {
       if (result.status === 'fulfilled') {
         if (!this.disposed && pending.revision === this.revision && !this.pending) {
           this.uiStore.getState().setSaveStatus('saved');
-          this.uiStore.getState().setError(null);
+          this.uiStore.getState().setSaveError(null);
         }
         return;
       }
       if (!this.disposed && pending.revision === this.revision && !this.pending) {
         this.lastFailed = cloneDesign(pending.design);
         this.uiStore.getState().setSaveStatus('error');
-        this.uiStore.getState().setError(
+        this.uiStore.getState().setSaveError(
           result.error instanceof Error ? result.error.message : '카드를 저장하지 못했습니다.',
         );
       }

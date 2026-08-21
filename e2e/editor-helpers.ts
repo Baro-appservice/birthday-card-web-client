@@ -4,6 +4,9 @@ export interface StoredElement {
   id: string;
   type: 'text' | 'image' | 'shape';
   x: number;
+  y: number;
+  width: number;
+  height: number;
   text?: string;
   assetId?: string;
 }
@@ -97,6 +100,52 @@ export function findElement(design: StoredDesign, elementId: string): StoredElem
   const element = design.pages[0]?.elements.find((candidate) => candidate.id === elementId);
   if (!element) throw new Error(`저장 요소가 없습니다: ${elementId}`);
   return element;
+}
+
+async function canvasMetrics(page: Page) {
+  const box = await page.getByTestId('editor-canvas-frame').boundingBox();
+  if (!box) throw new Error('Canvas 위치를 찾을 수 없습니다.');
+  return { box, scale: box.width / 1080 };
+}
+
+export async function dragElementOnCanvas(
+  page: Page,
+  element: StoredElement,
+  delta: { x: number; y: number },
+): Promise<void> {
+  const { box, scale } = await canvasMetrics(page);
+  const start = {
+    x: box.x + (element.x + element.width / 2) * scale,
+    y: box.y + (element.y + element.height / 2) * scale,
+  };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(
+    start.x + delta.x * scale,
+    start.y + delta.y * scale,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+}
+
+export async function resizeElementFromBottomRight(
+  page: Page,
+  element: StoredElement,
+  delta: { width: number; height: number },
+): Promise<void> {
+  const { box, scale } = await canvasMetrics(page);
+  const handle = {
+    x: box.x + (element.x + element.width) * scale,
+    y: box.y + (element.y + element.height) * scale,
+  };
+  await page.mouse.move(handle.x, handle.y);
+  await page.mouse.down();
+  await page.mouse.move(
+    handle.x + delta.width * scale,
+    handle.y + delta.height * scale,
+    { steps: 8 },
+  );
+  await page.mouse.up();
 }
 
 export async function expectPngDimensions(
