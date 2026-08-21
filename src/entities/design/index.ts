@@ -16,6 +16,11 @@ export {
   type TransformSnapshot,
 } from './model/element';
 export {
+  collectDesignAssetIds,
+  collectElementAssetIds,
+  collectUnknownAssetIds,
+} from './model/asset-references';
+export {
   designElementSchema,
   designPageSchema,
   designSchema,
