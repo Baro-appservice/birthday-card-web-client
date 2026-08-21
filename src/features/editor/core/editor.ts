@@ -55,6 +55,12 @@ export interface EditorApi {
   addImage(file: File): Promise<void>;
   replaceSelectedImage(file: File): Promise<void>;
   updateSelection(patch: SelectionPatch, options?: UpdateSelectionOptions): Promise<void>;
+  updateTextElement(
+    pageId: string,
+    elementId: string,
+    text: string,
+    options?: UpdateSelectionOptions,
+  ): Promise<void>;
   deleteSelection(): Promise<void>;
   bringForward(): Promise<void>;
   sendBackward(): Promise<void>;
@@ -248,6 +254,27 @@ export class Editor implements EditorApi {
         this.pageId,
         selected.id,
         patch.changes as Partial<DesignElement>,
+        options?.historyGroup,
+      )));
+    });
+  }
+
+  async updateTextElement(
+    pageId: string,
+    elementId: string,
+    text: string,
+    options?: UpdateSelectionOptions,
+  ): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      const page = this.design.pages.find((candidate) => candidate.id === pageId);
+      const element = page?.elements.find((candidate) => candidate.id === elementId);
+      if (!element || element.type !== 'text' || element.text === text) return;
+      await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
+        this.dependencies.designStore,
+        pageId,
+        elementId,
+        { text },
         options?.historyGroup,
       )));
     });
