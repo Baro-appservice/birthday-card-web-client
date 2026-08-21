@@ -12,6 +12,8 @@ const BUILTIN_ASSETS = {
 
 const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION = 8192;
+const MAX_IMAGE_PIXELS = 32_000_000;
 const MAX_ID_GENERATION_ATTEMPTS = 3;
 
 export interface AssetDimensions {
@@ -54,6 +56,19 @@ function isValidDimensions(dimensions: AssetDimensions): boolean {
     && Number.isFinite(dimensions.height)
     && dimensions.width > 0
     && dimensions.height > 0;
+}
+
+function assertSafeDimensions(dimensions: AssetDimensions): void {
+  if (!isValidDimensions(dimensions)) {
+    throw new Error('유효한 이미지 크기를 읽을 수 없습니다.');
+  }
+  if (
+    dimensions.width > MAX_IMAGE_DIMENSION
+    || dimensions.height > MAX_IMAGE_DIMENSION
+    || dimensions.width * dimensions.height > MAX_IMAGE_PIXELS
+  ) {
+    throw new Error('이미지 해상도가 너무 큽니다. 최대 변 길이 8192px, 총 3200만 픽셀까지 지원합니다.');
+  }
 }
 
 async function decodeImageDimensions(file: Blob): Promise<AssetDimensions> {
@@ -120,9 +135,7 @@ export class BrowserAssetGateway implements AssetGateway {
 
     const dimensions = await this.decoder(file);
     this.assertActive();
-    if (!isValidDimensions(dimensions)) {
-      throw new Error('유효한 이미지 크기를 읽을 수 없습니다.');
-    }
+    assertSafeDimensions(dimensions);
     const bytes = await readFileBytes(file);
     this.assertActive();
     return this.persistAsset({
