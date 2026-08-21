@@ -1,6 +1,6 @@
 import type { DesignElement } from './element';
 
-export const DESIGN_VERSION = 1;
+export const DESIGN_VERSION = 2;
 export const DESIGN_WIDTH = 1080;
 export const DESIGN_HEIGHT = 1350;
 
