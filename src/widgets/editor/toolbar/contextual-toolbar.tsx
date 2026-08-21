@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import type { DesignElement, TextElement } from '@/entities/design';
+import {
+  TEXT_FONT_SIZE_MAX,
+  TEXT_FONT_SIZE_MIN,
+  clampTextFontSize,
+  type DesignElement,
+  type TextElement,
+} from '@/entities/design';
 import { Button } from '@/shared/ui/button';
 import { ColorInput } from '@/shared/ui/color-input';
 import { useDesignStore, useEditor, useEditorRuntimeStore, useEditorUiStore } from '@/features/editor/hooks/use-editor';
@@ -10,6 +16,13 @@ import { useDesignStore, useEditor, useEditorRuntimeStore, useEditorUiStore } fr
 const propertyTouchTargetClass = 'property-touch-target min-h-11 min-w-11';
 const approvedFontFamilies = ['system-ui', 'Arial', 'Georgia'] as const;
 const textCommitDelayMs = 160;
+let nextTextEditSessionId = 1;
+
+function createTextHistoryGroup(elementId: string): string {
+  const sessionId = nextTextEditSessionId;
+  nextTextEditSessionId += 1;
+  return `text:${elementId}:${sessionId}`;
+}
 
 function TextContentInput({
   selected,
@@ -18,11 +31,19 @@ function TextContentInput({
 }: {
   selected: Extract<DesignElement, { type: 'text' }>;
   property: boolean;
-  onCommit(text: string): Promise<void>;
+  onCommit(text: string, historyGroup: string): Promise<void>;
 }) {
   const [draft, setDraft] = useState(selected.text);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submittedRef = useRef(selected.text);
+  const historyGroupRef = useRef<string | null>(null);
+
+  const ensureHistoryGroup = () => {
+    if (!historyGroupRef.current) {
+      historyGroupRef.current = createTextHistoryGroup(selected.id);
+    }
+    return historyGroupRef.current;
+  };
 
   const cancelScheduledCommit = () => {
     if (timerRef.current === null) return;
@@ -30,13 +51,13 @@ function TextContentInput({
     timerRef.current = null;
   };
 
-  const commit = async (value: string) => {
+  const commit = async (value: string, historyGroup: string) => {
     cancelScheduledCommit();
     if (value === submittedRef.current) return;
     const previousSubmitted = submittedRef.current;
     submittedRef.current = value;
     try {
-      await onCommit(value);
+      await onCommit(value, historyGroup);
     } catch (error) {
       submittedRef.current = previousSubmitted;
       throw error;
@@ -45,9 +66,10 @@ function TextContentInput({
 
   const scheduleCommit = (value: string) => {
     cancelScheduledCommit();
+    const historyGroup = ensureHistoryGroup();
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
-      void commit(value);
+      void commit(value, historyGroup);
     }, textCommitDelayMs);
   };
 
@@ -66,12 +88,20 @@ function TextContentInput({
       aria-label="선택한 텍스트 내용"
       type="text"
       value={draft}
+      onFocus={() => {
+        historyGroupRef.current = createTextHistoryGroup(selected.id);
+      }}
       onChange={(event) => {
         const value = event.target.value;
         setDraft(value);
         scheduleCommit(value);
       }}
-      onBlur={() => void commit(draft)}
+      onBlur={() => {
+        const historyGroup = ensureHistoryGroup();
+        void commit(draft, historyGroup).finally(() => {
+          if (historyGroupRef.current === historyGroup) historyGroupRef.current = null;
+        });
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
@@ -100,7 +130,7 @@ function FontSizeInput({
       setDraft(String(fontSize));
       return;
     }
-    const clamped = Math.min(160, Math.max(12, parsed));
+    const clamped = clampTextFontSize(parsed);
     setDraft(String(clamped));
     if (clamped !== fontSize) await onCommit(clamped);
   };
@@ -110,8 +140,8 @@ function FontSizeInput({
       id="font-size"
       aria-label="글자 크기"
       type="number"
-      min="12"
-      max="160"
+      min={TEXT_FONT_SIZE_MIN}
+      max={TEXT_FONT_SIZE_MAX}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => void commit()}
@@ -150,10 +180,16 @@ function SelectionControls({ property }: { property: boolean }) {
 function TextControls({ selected, property }: { selected: Extract<DesignElement, { type: 'text' }>; property: boolean }) {
   const editor = useEditor();
   const setError = useEditorUiStore((state) => state.setError);
-  const update = async (changes: Partial<Pick<TextElement,
-    'text' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>) => {
+  const update = async (
+    changes: Partial<Pick<TextElement,
+      'text' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>,
+    historyGroup?: string,
+  ) => {
     try {
-      await editor.updateSelection({ type: 'text', changes });
+      await editor.updateSelection(
+        { type: 'text', changes },
+        historyGroup ? { historyGroup } : undefined,
+      );
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : '텍스트 서식을 바꾸지 못했습니다. 다시 시도해 주세요.');
@@ -169,7 +205,7 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
         key={selected.id}
         selected={selected}
         property={property}
-        onCommit={(text) => update({ text })}
+        onCommit={(text, historyGroup) => update({ text }, historyGroup)}
       />
       <label className="sr-only" htmlFor="font-family">글꼴</label>
       <select id="font-family" value={displayedFontFamily} onChange={(event) => void update({ fontFamily: event.target.value })} className={`${property ? propertyTouchTargetClass : 'h-9'} rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}>
