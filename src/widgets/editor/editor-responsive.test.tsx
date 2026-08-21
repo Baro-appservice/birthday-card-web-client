@@ -139,6 +139,30 @@ describe('EditorScreen responsive composition', () => {
     expect(() => fireEvent.keyDown(window, { key: 'Escape' })).not.toThrow();
   });
 
+  it('태블릿의 중첩 PropertySheet는 첫 Escape를 소비하고 Drawer는 두 번째 Escape에서 닫는다', async () => {
+    installMatchMedia(820);
+    const user = userEvent.setup();
+    const kit = createEditorTestKit();
+    render(<EditorScreen cardId="local-demo" assemblyFactory={assemblyFactoryFor(kit)} />);
+
+    const drawerTrigger = await screen.findByRole('button', { name: '편집 도구 열기' });
+    await user.click(drawerTrigger);
+    const drawer = await screen.findByRole('navigation', { name: '태블릿 편집 도구' });
+    const sheetTrigger = screen.getByRole('tab', { name: '텍스트' });
+    sheetTrigger.focus();
+    act(() => kit.runtimeStore.getState().setSelectedElementIds(['title']));
+    const sheet = await screen.findByRole('dialog', { name: '선택한 요소 편집' });
+
+    fireEvent.keyDown(sheet, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '선택한 요소 편집' })).not.toBeInTheDocument());
+    expect(drawer).toBeInTheDocument();
+    expect(sheetTrigger).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: '태블릿 편집 도구' })).not.toBeInTheDocument());
+    expect(drawerTrigger).toHaveFocus();
+  });
+
   it('모바일 property variant는 layer 정밀 동작 없이 44px control contract를 적용하고 물리 키보드를 처리한다', async () => {
     installMatchMedia(390);
     const kit = createEditorTestKit();

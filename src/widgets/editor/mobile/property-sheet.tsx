@@ -25,6 +25,7 @@ export function PropertySheet({
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopPropagation();
       onClose();
       return;
     }
