@@ -1,4 +1,8 @@
-import { designSchema, type Design } from '@/entities/design';
+import {
+  migratePersistedDesign,
+  prepareDesignForPersistence,
+  type Design,
+} from '@/entities/design';
 import type { DesignLoadResult, DesignRepository } from '@/features/editor/core/ports';
 
 import {
@@ -18,19 +22,6 @@ function cloneDesign(design: Design): Design {
   return structuredClone(design);
 }
 
-function recoveryReason(current: unknown): 'corrupt' | 'unsupported-version' {
-  if (
-    typeof current === 'object'
-    && current !== null
-    && 'version' in current
-    && typeof current.version === 'number'
-    && current.version !== 1
-  ) {
-    return 'unsupported-version';
-  }
-  return 'corrupt';
-}
-
 export class IndexedDbDesignRepository implements DesignRepository {
   constructor(private readonly database: IDBDatabase) {}
 
@@ -48,22 +39,27 @@ export class IndexedDbDesignRepository implements DesignRepository {
     await transactionDone(transaction);
     if (!record) return { status: 'empty' };
 
-    const current = designSchema.safeParse(record.current);
-    if (current.success) {
-      return { status: 'loaded', design: cloneDesign(current.data) };
+    const current = migratePersistedDesign(record.current);
+    if (current.status === 'ok') {
+      return {
+        status: 'loaded',
+        design: cloneDesign(current.design),
+        updatedAt: record.updatedAt,
+        needsSave: current.changed,
+      };
     }
 
-    const backup = designSchema.safeParse(record.backup);
+    const backup = migratePersistedDesign(record.backup);
     return {
       status: 'recoverable',
-      reason: recoveryReason(record.current),
-      backup: backup.success ? cloneDesign(backup.data) : null,
+      reason: current.reason,
+      backup: backup.status === 'ok' ? cloneDesign(backup.design) : null,
+      updatedAt: record.updatedAt,
     };
   }
 
   async save(cardId: string, design: Design): Promise<void> {
-    const parsed = designSchema.parse(design);
-    const current = cloneDesign(parsed);
+    const current = prepareDesignForPersistence(design);
     let transaction: IDBTransaction;
     try {
       transaction = this.database.transaction(DESIGN_RECORDS_STORE, 'readwrite');
@@ -73,15 +69,15 @@ export class IndexedDbDesignRepository implements DesignRepository {
 
     const store = transaction.objectStore(DESIGN_RECORDS_STORE);
     const previous = await requestToPromise<DesignRecord | undefined>(store.get(cardId));
-    const previousCurrent = designSchema.safeParse(previous?.current);
-    const previousBackup = designSchema.safeParse(previous?.backup);
+    const previousCurrent = migratePersistedDesign(previous?.current);
+    const previousBackup = migratePersistedDesign(previous?.backup);
     store.put({
       cardId,
       current,
-      backup: previousCurrent.success
-        ? cloneDesign(previousCurrent.data)
-        : previousBackup.success
-          ? cloneDesign(previousBackup.data)
+      backup: previousCurrent.status === 'ok'
+        ? cloneDesign(previousCurrent.design)
+        : previousBackup.status === 'ok'
+          ? cloneDesign(previousBackup.design)
           : null,
       updatedAt: Date.now(),
     } satisfies DesignRecord);
