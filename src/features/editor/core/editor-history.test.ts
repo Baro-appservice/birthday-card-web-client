@@ -156,21 +156,21 @@ describe('CompositeEditorCommand', () => {
 });
 
 describe('TransformElementCommand', () => {
-  it('transform command는 before와 after를 정확히 왕복한다', () => {
+  it('비텍스트 transform command는 before와 after를 정확히 왕복한다', () => {
     const store = createDesignStore(createSampleDesign());
-    const command = new TransformElementCommand(store, 'page-1', 'title', {
-      before: { x: 180, y: 140, width: 720, height: 180, rotation: 0 },
-      after: { x: 220, y: 180, width: 680, height: 170, rotation: 8 },
+    const command = new TransformElementCommand(store, 'page-1', 'top-decoration', {
+      before: { x: 70, y: 56, width: 940, height: 250, rotation: 0 },
+      after: { x: 90, y: 80, width: 800, height: 220, rotation: 8 },
     });
 
     command.execute();
-    expect(findElement(store, 'title')).toMatchObject({
-      x: 220, y: 180, width: 680, height: 170, rotation: 8,
+    expect(findElement(store, 'top-decoration')).toMatchObject({
+      x: 90, y: 80, width: 800, height: 220, rotation: 8,
     });
 
     command.undo();
-    expect(findElement(store, 'title')).toMatchObject({
-      x: 180, y: 140, width: 720, height: 180, rotation: 0,
+    expect(findElement(store, 'top-decoration')).toMatchObject({
+      x: 70, y: 56, width: 940, height: 250, rotation: 0,
     });
   });
 });
