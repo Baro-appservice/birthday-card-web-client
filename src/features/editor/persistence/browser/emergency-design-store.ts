@@ -7,6 +7,11 @@ export interface EmergencyDesignRecord {
   updatedAt: number;
 }
 
+export type EmergencyDesignLoadResult =
+  | { status: 'empty' }
+  | { status: 'loaded'; record: EmergencyDesignRecord }
+  | { status: 'unsupported-version' };
+
 function storage(): Storage | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -30,23 +35,35 @@ export function writeEmergencyDesign(cardId: string, design: Design): void {
   }
 }
 
-export function readEmergencyDesign(cardId: string): EmergencyDesignRecord | null {
+export function readEmergencyDesign(cardId: string): EmergencyDesignLoadResult {
   const target = storage();
-  if (!target) return null;
+  if (!target) return { status: 'empty' };
   const key = `${EMERGENCY_DESIGN_PREFIX}${cardId}`;
   try {
     const raw = target.getItem(key);
-    if (!raw) return null;
+    if (!raw) return { status: 'empty' };
     const record = JSON.parse(raw) as Partial<EmergencyDesignRecord>;
     const migrated = migratePersistedDesign(record.design);
-    if (migrated.status === 'ok' && typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt)) {
-      return { design: migrated.design, updatedAt: record.updatedAt };
+    if (
+      migrated.status === 'ok'
+      && typeof record.updatedAt === 'number'
+      && Number.isFinite(record.updatedAt)
+    ) {
+      return {
+        status: 'loaded',
+        record: { design: migrated.design, updatedAt: record.updatedAt },
+      };
+    }
+    if (migrated.status === 'error' && migrated.reason === 'unsupported-version') {
+      // A stale client must never delete or overwrite recovery data written by a
+      // newer Design version. Keep the raw localStorage record for a newer client.
+      return { status: 'unsupported-version' };
     }
     target.removeItem(key);
   } catch {
     try { target.removeItem(key); } catch { /* ignore cleanup failure */ }
   }
-  return null;
+  return { status: 'empty' };
 }
 
 export function clearEmergencyDesign(cardId: string): void {
