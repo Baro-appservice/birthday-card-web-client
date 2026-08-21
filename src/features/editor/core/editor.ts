@@ -216,7 +216,6 @@ export class Editor implements EditorApi {
       const asset = await this.dependencies.assetGateway.upload(file);
       try {
         this.assertActive();
-        // Keep the existing frame. Fabric renders the replacement with centered cover cropping.
         await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
           this.dependencies.designStore,
           this.pageId,
@@ -446,6 +445,38 @@ export class Editor implements EditorApi {
     }
   }
 
+  private async applyLiveTextMutation(
+    mutation: () => void,
+    generation: number,
+  ): Promise<void> {
+    const previousDesign = structuredClone(this.design);
+    const previousSelection = [...this.selectedElementIds];
+    const previousHistory = this.history.snapshot();
+
+    try {
+      mutation();
+      this.assertGeneration(generation);
+      this.dependencies.onDocumentChange(this.design);
+      this.scheduleAssetGarbageCollection();
+    } catch (error) {
+      this.dependencies.designStore.getState().replaceDesign(previousDesign);
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
+      this.history.restore(previousHistory);
+      if (this.isActiveGeneration(generation)) {
+        try {
+          await this.dependencies.renderer.render(previousDesign);
+          this.assertGeneration(generation);
+          this.dependencies.renderer.select(previousSelection);
+        } catch {
+          if (this.isActiveGeneration(generation)) {
+            this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+          }
+        }
+      }
+      throw error;
+    }
+  }
+
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.operationChain.then(operation, operation);
     this.operationChain = result.then(
@@ -492,17 +523,13 @@ export class Editor implements EditorApi {
       this.assertGeneration(eventGeneration);
       const selected = this.findElement(event.elementId);
       if (!selected || selected.type !== 'text' || selected.text === event.after) return;
-      // Fabric already owns the live Textbox while the caret is active. Update the
-      // canonical Design/history and persistence without re-rendering that object.
-      this.history.execute(new UpdateElementCommand(
+      await this.applyLiveTextMutation(() => this.history.execute(new UpdateElementCommand(
         this.dependencies.designStore,
         this.pageId,
         event.elementId,
         { text: event.after },
         event.historyGroup,
-      ));
-      this.dependencies.onDocumentChange(this.design);
-      this.scheduleAssetGarbageCollection();
+      )), eventGeneration);
     });
   }
 
