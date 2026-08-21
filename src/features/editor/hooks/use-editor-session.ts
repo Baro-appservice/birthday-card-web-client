@@ -1,7 +1,11 @@
 import { useCallback, useContext, useEffect, useState } from 'react';
 
 import { createSampleDesign } from '@/entities/design';
-import { readEmergencyDesign, writeEmergencyDesign } from '@/features/editor/persistence';
+import {
+  clearEmergencyDesign,
+  readEmergencyDesign,
+  writeEmergencyDesign,
+} from '@/features/editor/persistence';
 
 import { EditorContext } from '../context/editor-context';
 
@@ -27,20 +31,29 @@ export function useEditorSession(cardId: string): EditorSession {
   useEffect(() => {
     let cancelled = false;
 
-    const emergency = readEmergencyDesign(cardId);
-    if (emergency) {
-      designStore.getState().replaceDesign(emergency);
-      runtimeStore.getState().setActivePageId(emergency.pages[0]?.id ?? 'page-1');
-      saveCoordinator.schedule(emergency);
-      void saveCoordinator.flush();
-      setLoadedCardId(cardId);
-      setStatus('ready');
-      return () => { cancelled = true; };
-    }
-
     void repository.load(cardId)
       .then((result) => {
         if (cancelled) return;
+        const emergency = readEmergencyDesign(cardId);
+
+        if (
+          emergency
+          && (result.status === 'empty'
+            || result.status === 'recoverable'
+            || emergency.updatedAt > (result.updatedAt ?? 0))
+        ) {
+          designStore.getState().replaceDesign(emergency.design);
+          runtimeStore.getState().setActivePageId(emergency.design.pages[0]?.id ?? 'page-1');
+          saveCoordinator.schedule(emergency.design);
+          void saveCoordinator.flush();
+          uiStore.getState().setRecoveryNotice(null);
+          setLoadedCardId(cardId);
+          setStatus('ready');
+          return;
+        }
+
+        if (emergency) clearEmergencyDesign(cardId);
+
         if (result.status === 'recoverable') {
           uiStore.getState().setRecoveryNotice({
             reason: result.reason,
@@ -54,7 +67,7 @@ export function useEditorSession(cardId: string): EditorSession {
         const design = result.status === 'empty' ? createSampleDesign() : result.design;
         designStore.getState().replaceDesign(design);
         runtimeStore.getState().setActivePageId(design.pages[0]?.id ?? 'page-1');
-        if (result.status === 'empty') saveCoordinator.schedule(design);
+        if (result.status === 'empty' || result.needsSave) saveCoordinator.schedule(design);
         setLoadedCardId(cardId);
         setStatus('ready');
       })
