@@ -37,12 +37,52 @@ function canReuseObject(
   return object instanceof FabricImage || object instanceof Rect;
 }
 
+function configureInteraction(object: FabricObject): void {
+  object.set({
+    lockScalingFlip: true,
+    lockSkewingX: true,
+    lockSkewingY: true,
+  });
+  object.cornerSize = 14;
+  object.touchCornerSize = 32;
+}
+
 function applyCommonProperties(object: FabricObject, element: DesignElement): void {
   object.set({
     left: element.x,
     top: element.y,
     angle: element.rotation,
     opacity: element.opacity,
+  });
+  configureInteraction(object);
+}
+
+function applyCoverImage(object: FabricImage, frameWidth: number, frameHeight: number): void {
+  const sourceWidth = positiveOr(object.getElement().naturalWidth || object.width, frameWidth);
+  const sourceHeight = positiveOr(object.getElement().naturalHeight || object.height, frameHeight);
+  const frameAspect = frameWidth / frameHeight;
+  const sourceAspect = sourceWidth / sourceHeight;
+
+  let cropWidth = sourceWidth;
+  let cropHeight = sourceHeight;
+  let cropX = 0;
+  let cropY = 0;
+
+  if (sourceAspect > frameAspect) {
+    cropWidth = sourceHeight * frameAspect;
+    cropX = (sourceWidth - cropWidth) / 2;
+  } else if (sourceAspect < frameAspect) {
+    cropHeight = sourceWidth / frameAspect;
+    cropY = (sourceHeight - cropHeight) / 2;
+  }
+
+  object.set({
+    cropX,
+    cropY,
+    width: cropWidth,
+    height: cropHeight,
+    scaleX: frameWidth / cropWidth,
+    scaleY: frameHeight / cropHeight,
   });
 }
 
@@ -73,7 +113,7 @@ function patchObject(object: FabricObject, element: DesignElement): void {
       scaleX: 1,
       scaleY: 1,
     });
-  } else if (element.type === 'shape' && element.shape === 'circle' && object instanceof Ellipse) {
+  } else if (element.type === 'shape' && (element.shape === 'circle' || element.shape === 'ellipse') && object instanceof Ellipse) {
     object.set({
       rx: element.width / 2,
       ry: element.height / 2,
@@ -82,10 +122,7 @@ function patchObject(object: FabricObject, element: DesignElement): void {
       scaleY: 1,
     });
   } else if (element.type === 'image' && object instanceof FabricImage) {
-    object.set({
-      scaleX: element.width / positiveOr(object.width, element.width),
-      scaleY: element.height / positiveOr(object.height, element.height),
-    });
+    applyCoverImage(object, element.width, element.height);
   } else if (element.type === 'image' && object instanceof Rect) {
     object.set({
       width: element.width,
@@ -98,6 +135,11 @@ function patchObject(object: FabricObject, element: DesignElement): void {
   object.setCoords();
 }
 
+function elementChanged(previous: DesignElement | undefined, next: DesignElement): boolean {
+  if (!previous) return true;
+  return JSON.stringify(previous) !== JSON.stringify(next);
+}
+
 export class FabricEditorRenderer implements EditorRenderer {
   private canvas: Canvas | undefined;
   private eventAdapter: FabricEventAdapter | undefined;
@@ -106,6 +148,7 @@ export class FabricEditorRenderer implements EditorRenderer {
   private readonly renderedElements = new Map<string, DesignElement>();
   private renderGeneration = 0;
   private disposed = false;
+  private renderedSize: { width: number; height: number } | null = null;
 
   constructor(private readonly assetGateway: Pick<AssetGateway, 'resolveUrl'>) {}
 
@@ -134,20 +177,20 @@ export class FabricEditorRenderer implements EditorRenderer {
       const existing = this.objectsById.get(element.id);
       const previous = this.renderedElements.get(element.id);
       if (existing && canReuseObject(existing, previous, element)) {
-        return { element, object: existing, reused: true };
+        return { element, previous, object: existing, reused: true };
       }
-      return {
-        element,
-        object: await elementToFabricObject(element, this.assetGateway),
-        reused: false,
-      };
+      const object = await elementToFabricObject(element, this.assetGateway);
+      configureInteraction(object);
+      return { element, previous, object, reused: false };
     }));
 
     if (!this.isCurrent(generation, canvas)) return;
 
     try {
       for (const entry of prepared) {
-        if (entry.reused) patchObject(entry.object, entry.element);
+        if (entry.reused && elementChanged(entry.previous, entry.element)) {
+          patchObject(entry.object, entry.element);
+        }
       }
 
       const nextObjects = prepared.map((entry) => entry.object);
@@ -161,7 +204,12 @@ export class FabricEditorRenderer implements EditorRenderer {
       }
       nextObjects.forEach((object, index) => canvas.moveObjectTo(object, index));
 
-      canvas.setDimensions({ width: design.width, height: design.height });
+      if (!this.renderedSize
+        || this.renderedSize.width !== design.width
+        || this.renderedSize.height !== design.height) {
+        canvas.setDimensions({ width: design.width, height: design.height });
+        this.renderedSize = { width: design.width, height: design.height };
+      }
       canvas.backgroundColor = page.background;
 
       this.objectsById.clear();
@@ -192,8 +240,12 @@ export class FabricEditorRenderer implements EditorRenderer {
       return;
     }
 
-    canvas.discardActiveObject();
-    if (object) canvas.setActiveObject(object);
+    const changeSelection = () => {
+      canvas.discardActiveObject();
+      if (object) canvas.setActiveObject(object);
+    };
+    if (this.eventAdapter) this.eventAdapter.runWithoutSelectionEvents(changeSelection);
+    else changeSelection();
     canvas.requestRenderAll();
   }
 
@@ -235,6 +287,7 @@ export class FabricEditorRenderer implements EditorRenderer {
     this.eventAdapter = undefined;
     this.objectsById.clear();
     this.renderedElements.clear();
+    this.renderedSize = null;
     const canvas = this.canvas;
     this.canvas = undefined;
     if (canvas) void canvas.dispose();
