@@ -1,4 +1,4 @@
-import type { DesignElement } from '@/entities/design';
+import { collectElementAssetIds, type DesignElement } from '@/entities/design';
 import type { DesignStore } from '@/features/editor/model/design-store';
 
 import type { EditorCommand } from '../core/editor-command';
@@ -61,5 +61,12 @@ export class UpdateElementCommand implements EditorCommand {
       this.historyGroup,
       { before: this.before, after: next.after },
     );
+  }
+
+  referencedAssetIds(): ReadonlySet<string> {
+    return new Set([
+      ...collectElementAssetIds(this.before),
+      ...collectElementAssetIds(this.after),
+    ]);
   }
 }
