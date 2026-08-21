@@ -24,6 +24,12 @@ export {
   textElementSchema,
 } from './model/design-schema';
 export {
+  type DesignMigrationResult,
+  migratePersistedDesign,
+  normalizeDesign,
+  prepareDesignForPersistence,
+} from './model/design-migration';
+export {
   TEXT_FONT_SIZE_MAX,
   TEXT_FONT_SIZE_MIN,
   assertTextFontSize,
