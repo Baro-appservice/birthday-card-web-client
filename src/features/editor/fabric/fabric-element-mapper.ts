@@ -1,4 +1,9 @@
-import type { DesignElement, DesignPage, TransformSnapshot } from '@/entities/design';
+import type {
+  DesignElement,
+  DesignPage,
+  TextTransformSnapshot,
+  TransformSnapshot,
+} from '@/entities/design';
 import type { AssetGateway } from '@/features/editor/core/ports';
 import { Ellipse, FabricImage, Rect, Textbox, type FabricObject } from 'fabric';
 
@@ -12,6 +17,10 @@ export interface FabricTransformValues {
   scaleX?: number;
   scaleY?: number;
   angle?: number;
+}
+
+export interface FabricTextTransformValues extends FabricTransformValues {
+  fontSize?: number;
 }
 
 const finiteOr = (value: number | undefined, fallback: number) =>
@@ -41,6 +50,19 @@ export function readTransform(values: FabricTransformValues): TransformSnapshot 
   };
 }
 
+export function readTextTransform(values: FabricTextTransformValues): TextTransformSnapshot {
+  const transform = readTransform(values);
+  const fontSize = positiveOr(values.fontSize, 1);
+  return {
+    ...transform,
+    fontSize: multipliedPositiveOr(
+      fontSize,
+      positiveOr(values.scaleY, 1),
+      fontSize,
+    ),
+  };
+}
+
 function commonOptions(element: DesignElement) {
   return {
     left: element.x,
@@ -63,11 +85,14 @@ function mapText(element: Extract<DesignElement, { type: 'text' }>): FabricObjec
     fontWeight: element.fontWeight,
     fill: element.color,
     textAlign: element.textAlign,
+    scaleX: 1,
+    scaleY: 1,
   });
-  textbox.set({
-    scaleX: element.width / positiveOr(textbox.width, element.width),
-    scaleY: element.height / positiveOr(textbox.height, element.height),
-  });
+
+  // Text height is content-derived. Horizontal controls resize the text frame;
+  // corner controls may scale the whole text and are normalized back into
+  // width + fontSize after the Fabric interaction ends.
+  textbox.setControlsVisibility({ mt: false, mb: false });
   return textbox;
 }
 
