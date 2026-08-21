@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useState } from 'react';
 
 import { createSampleDesign } from '@/entities/design';
+import { readEmergencyDesign, writeEmergencyDesign } from '@/features/editor/persistence';
 
 import { EditorContext } from '../context/editor-context';
 
@@ -25,6 +26,17 @@ export function useEditorSession(cardId: string): EditorSession {
 
   useEffect(() => {
     let cancelled = false;
+
+    const emergency = readEmergencyDesign(cardId);
+    if (emergency) {
+      designStore.getState().replaceDesign(emergency);
+      runtimeStore.getState().setActivePageId(emergency.pages[0]?.id ?? 'page-1');
+      saveCoordinator.schedule(emergency);
+      void saveCoordinator.flush();
+      setLoadedCardId(cardId);
+      setStatus('ready');
+      return () => { cancelled = true; };
+    }
 
     void repository.load(cardId)
       .then((result) => {
@@ -64,11 +76,12 @@ export function useEditorSession(cardId: string): EditorSession {
     const design = source === 'backup' && notice.backup ? notice.backup : createSampleDesign();
     designStore.getState().replaceDesign(design);
     runtimeStore.getState().setActivePageId(design.pages[0]?.id ?? 'page-1');
+    writeEmergencyDesign(cardId, design);
     saveCoordinator.schedule(design);
     await saveCoordinator.flush();
     uiStore.getState().setRecoveryNotice(null);
     setStatus('ready');
-  }, [designStore, runtimeStore, saveCoordinator, uiStore]);
+  }, [cardId, designStore, runtimeStore, saveCoordinator, uiStore]);
 
   return { status: loadedCardId === cardId ? status : 'loading', recover };
 }
