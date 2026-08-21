@@ -89,6 +89,11 @@ async function disposeEditorAssembly(assembly: EditorAssembly): Promise<void> {
   if (disposedAssemblies.has(assembly)) return;
   disposedAssemblies.add(assembly);
 
+  // Yield once so descendant effect cleanups can synchronously enqueue their
+  // final targeted text commits before we append the Editor queue-drain barrier.
+  // React completes the current unmount cleanup pass before this microtask runs.
+  await Promise.resolve();
+
   // Drain the Editor operation queue first. A mutation that was still rendering
   // when unmount started may schedule a brand-new save only after it completes.
   // Maintenance also runs GC while in-memory Design/history and IndexedDB are
