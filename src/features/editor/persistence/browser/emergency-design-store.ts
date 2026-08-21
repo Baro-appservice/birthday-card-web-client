@@ -1,8 +1,8 @@
-import { designSchema, type Design } from '@/entities/design';
+import { migratePersistedDesign, type Design } from '@/entities/design';
 
-const PREFIX = 'birthday-canvas:emergency:';
+export const EMERGENCY_DESIGN_PREFIX = 'birthday-canvas:emergency:';
 
-interface EmergencyDesignRecord {
+export interface EmergencyDesignRecord {
   design: Design;
   updatedAt: number;
 }
@@ -24,22 +24,24 @@ export function writeEmergencyDesign(cardId: string, design: Design): void {
       design: structuredClone(design),
       updatedAt: Date.now(),
     };
-    target.setItem(`${PREFIX}${cardId}`, JSON.stringify(record));
+    target.setItem(`${EMERGENCY_DESIGN_PREFIX}${cardId}`, JSON.stringify(record));
   } catch {
     // Best effort only. IndexedDB remains the primary persistence layer.
   }
 }
 
-export function readEmergencyDesign(cardId: string): Design | null {
+export function readEmergencyDesign(cardId: string): EmergencyDesignRecord | null {
   const target = storage();
   if (!target) return null;
-  const key = `${PREFIX}${cardId}`;
+  const key = `${EMERGENCY_DESIGN_PREFIX}${cardId}`;
   try {
     const raw = target.getItem(key);
     if (!raw) return null;
     const record = JSON.parse(raw) as Partial<EmergencyDesignRecord>;
-    const parsed = designSchema.safeParse(record.design);
-    if (parsed.success) return structuredClone(parsed.data);
+    const migrated = migratePersistedDesign(record.design);
+    if (migrated.status === 'ok' && typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt)) {
+      return { design: migrated.design, updatedAt: record.updatedAt };
+    }
     target.removeItem(key);
   } catch {
     try { target.removeItem(key); } catch { /* ignore cleanup failure */ }
@@ -51,8 +53,8 @@ export function clearEmergencyDesign(cardId: string): void {
   const target = storage();
   if (!target) return;
   try {
-    target.removeItem(`${PREFIX}${cardId}`);
+    target.removeItem(`${EMERGENCY_DESIGN_PREFIX}${cardId}`);
   } catch {
-    // The stale snapshot is harmless; a future successful save can retry cleanup.
+    // A future successful save can retry cleanup.
   }
 }
