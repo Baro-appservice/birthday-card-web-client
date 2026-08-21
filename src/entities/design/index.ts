@@ -21,6 +21,13 @@ export {
   collectUnknownAssetIds,
 } from './model/asset-references';
 export {
+  DEFAULT_BACKGROUND_COLOR,
+  DEFAULT_SHAPE_COLOR,
+  DEFAULT_TEXT_COLOR,
+  assertHexColor,
+  normalizeHexColor,
+} from './model/color-policy';
+export {
   designElementSchema,
   designPageSchema,
   designSchema,
