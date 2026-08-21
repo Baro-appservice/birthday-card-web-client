@@ -1,3 +1,9 @@
+import {
+  DEFAULT_BACKGROUND_COLOR,
+  DEFAULT_SHAPE_COLOR,
+  DEFAULT_TEXT_COLOR,
+  normalizeHexColor,
+} from './color-policy';
 import { DESIGN_VERSION, type Design } from './design';
 import type { DesignElement } from './element';
 import { designSchema, designV1Schema } from './design-schema';
@@ -67,15 +73,28 @@ function normalizeElement(element: DesignElement): { element: DesignElement; cha
     const fontFamily = APPROVED_FONT_FAMILIES.has(element.fontFamily)
       ? element.fontFamily
       : 'system-ui';
-    if (fontSize === element.fontSize && fontFamily === element.fontFamily) {
+    const color = normalizeHexColor(element.color, DEFAULT_TEXT_COLOR);
+    if (
+      fontSize === element.fontSize
+      && fontFamily === element.fontFamily
+      && color === element.color
+    ) {
       return { element, changed: false };
     }
     return {
-      element: { ...element, fontSize, fontFamily },
+      element: { ...element, fontSize, fontFamily, color },
       changed: true,
     };
   }
-  if (element.type === 'shape') return normalizeCircle(element);
+  if (element.type === 'shape') {
+    const circle = normalizeCircle(element);
+    const fill = normalizeHexColor(circle.element.fill, DEFAULT_SHAPE_COLOR);
+    if (!circle.changed && fill === circle.element.fill) return circle;
+    return {
+      element: { ...circle.element, fill },
+      changed: true,
+    };
+  }
   return { element, changed: false };
 }
 
@@ -83,6 +102,8 @@ export function normalizeDesign(design: Design): { design: Design; changed: bool
   let changed = false;
   const pages = design.pages.map((page) => {
     let pageChanged = false;
+    const background = normalizeHexColor(page.background, DEFAULT_BACKGROUND_COLOR);
+    if (background !== page.background) pageChanged = true;
     const elements = page.elements.map((element) => {
       const normalized = normalizeElement(element);
       if (normalized.changed) pageChanged = true;
@@ -90,7 +111,7 @@ export function normalizeDesign(design: Design): { design: Design; changed: bool
     });
     if (!pageChanged) return page;
     changed = true;
-    return { ...page, elements };
+    return { ...page, background, elements };
   });
   return changed ? { design: { ...design, pages }, changed: true } : { design, changed: false };
 }
