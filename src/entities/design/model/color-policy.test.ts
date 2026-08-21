@@ -20,9 +20,11 @@ describe('color policy', () => {
     expect(normalizeHexColor('rgb(1, 2, 3)', '#ffffff')).toBe('#ffffff');
   });
 
-  it('Core 입력 경계는 정확한 #RRGGBB만 허용한다', () => {
-    expect(() => assertHexColor('#A1b2C3')).not.toThrow();
-    expect(() => assertHexColor('#abc')).toThrow('#RRGGBB');
-    expect(() => assertHexColor('red')).toThrow('#RRGGBB');
+  it('Core 입력 경계는 canonical 소문자 #rrggbb만 허용한다', () => {
+    expect(() => assertHexColor('#a1b2c3')).not.toThrow();
+    expect(() => assertHexColor('#A1b2C3')).toThrow('소문자 #rrggbb');
+    expect(() => assertHexColor(' #a1b2c3')).toThrow('소문자 #rrggbb');
+    expect(() => assertHexColor('#abc')).toThrow('소문자 #rrggbb');
+    expect(() => assertHexColor('red')).toThrow('소문자 #rrggbb');
   });
 });
