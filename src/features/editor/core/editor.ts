@@ -1,8 +1,9 @@
-import type {
-  Design,
-  DesignElement,
-  ShapeElement,
-  TextElement,
+import {
+  assertTextFontSize,
+  type Design,
+  type DesignElement,
+  type ShapeElement,
+  type TextElement,
 } from '@/entities/design';
 import type {
   AssetGateway,
@@ -39,13 +40,17 @@ export type SelectionPatch =
     }
   | { type: 'shape'; changes: Partial<Pick<ShapeElement, 'fill'>> };
 
+export interface UpdateSelectionOptions {
+  historyGroup?: string;
+}
+
 export interface EditorApi {
   mount(canvas: HTMLCanvasElement): Promise<void>;
   addText(): Promise<void>;
   addShape(shape: 'rectangle' | 'circle'): Promise<void>;
   addImage(file: File): Promise<void>;
   replaceSelectedImage(file: File): Promise<void>;
-  updateSelection(patch: SelectionPatch): Promise<void>;
+  updateSelection(patch: SelectionPatch, options?: UpdateSelectionOptions): Promise<void>;
   deleteSelection(): Promise<void>;
   bringForward(): Promise<void>;
   sendBackward(): Promise<void>;
@@ -201,14 +206,14 @@ export class Editor implements EditorApi {
     });
   }
 
-  async updateSelection(patch: SelectionPatch): Promise<void> {
+  async updateSelection(
+    patch: SelectionPatch,
+    options?: UpdateSelectionOptions,
+  ): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
       if (patch.type === 'text' && patch.changes.fontSize !== undefined) {
-        const { fontSize } = patch.changes;
-        if (!Number.isFinite(fontSize) || fontSize < 12 || fontSize > 160) {
-          throw new Error('글자 크기는 12에서 160 사이의 유한한 숫자여야 합니다.');
-        }
+        assertTextFontSize(patch.changes.fontSize);
       }
       const selected = this.singleSelectedElement();
       if (!selected || selected.type !== patch.type) return;
@@ -217,6 +222,7 @@ export class Editor implements EditorApi {
         this.pageId,
         selected.id,
         patch.changes as Partial<DesignElement>,
+        options?.historyGroup,
       )));
     });
   }
