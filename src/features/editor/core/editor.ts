@@ -47,7 +47,7 @@ export interface UpdateSelectionOptions {
 export interface EditorApi {
   mount(canvas: HTMLCanvasElement): Promise<void>;
   addText(): Promise<void>;
-  addShape(shape: 'rectangle' | 'circle'): Promise<void>;
+  addShape(shape: ShapeElement['shape']): Promise<void>;
   addImage(file: File): Promise<void>;
   replaceSelectedImage(file: File): Promise<void>;
   updateSelection(patch: SelectionPatch, options?: UpdateSelectionOptions): Promise<void>;
@@ -79,18 +79,24 @@ const DEFAULT_TEXT: Omit<TextElement, 'id'> = {
 };
 
 function createShapeElement(id: string, shape: ShapeElement['shape']): ShapeElement {
+  const isCircle = shape === 'circle';
   return {
     id,
     type: 'shape',
     x: 390,
     y: 560,
     width: 300,
-    height: 220,
+    height: isCircle ? 300 : 220,
     rotation: 0,
     opacity: 1,
     shape,
     fill: '#ffb6cf',
   };
+}
+
+function fitInside(width: number, height: number, maxWidth: number, maxHeight: number) {
+  const scale = Math.min(1, maxWidth / width, maxHeight / height);
+  return { width: width * scale, height: height * scale };
 }
 
 export class Editor implements EditorApi {
@@ -165,6 +171,7 @@ export class Editor implements EditorApi {
       try {
         this.assertActive();
         const id = this.dependencies.idGenerator();
+        const fitted = fitInside(asset.width, asset.height, 640, 480);
         await this.applyDocumentMutation(() => this.history.execute(new AddElementCommand(
           this.dependencies.designStore,
           this.pageId,
@@ -173,8 +180,8 @@ export class Editor implements EditorApi {
             type: 'image',
             x: 220,
             y: 380,
-            width: Math.min(asset.width, 640),
-            height: Math.min(asset.height, 480),
+            width: fitted.width,
+            height: fitted.height,
             rotation: 0,
             opacity: 1,
             assetId: asset.id,
@@ -194,6 +201,7 @@ export class Editor implements EditorApi {
       const asset = await this.dependencies.assetGateway.upload(file);
       try {
         this.assertActive();
+        // Keep the existing frame. Fabric renders the replacement with centered cover cropping.
         await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
           this.dependencies.designStore,
           this.pageId,
@@ -217,6 +225,10 @@ export class Editor implements EditorApi {
       }
       const selected = this.singleSelectedElement();
       if (!selected || selected.type !== patch.type) return;
+      const changed = Object.entries(patch.changes).some(
+        ([key, value]) => selected[key as keyof typeof selected] !== value,
+      );
+      if (!changed) return;
       await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
         this.dependencies.designStore,
         this.pageId,
@@ -252,7 +264,11 @@ export class Editor implements EditorApi {
     return this.enqueue(async () => {
       this.assertActive();
       if (!this.history.canUndo()) return;
-      await this.applyDocumentMutation(() => { this.history.undo(); }, []);
+      const previousSelection = [...this.selectedElementIds];
+      await this.applyDocumentMutation(() => { this.history.undo(); });
+      const survivingSelection = previousSelection.filter((id) => this.findElement(id));
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection.slice(0, 1));
+      this.dependencies.renderer.select(survivingSelection.slice(0, 1));
     });
   }
 
@@ -260,7 +276,11 @@ export class Editor implements EditorApi {
     return this.enqueue(async () => {
       this.assertActive();
       if (!this.history.canRedo()) return;
-      await this.applyDocumentMutation(() => { this.history.redo(); }, []);
+      const previousSelection = [...this.selectedElementIds];
+      await this.applyDocumentMutation(() => { this.history.redo(); });
+      const survivingSelection = previousSelection.filter((id) => this.findElement(id));
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection.slice(0, 1));
+      this.dependencies.renderer.select(survivingSelection.slice(0, 1));
     });
   }
 
@@ -298,6 +318,8 @@ export class Editor implements EditorApi {
   async setBackground(color: string): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
+      const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
+      if (!page || page.background === color) return;
       await this.applyDocumentMutation(() => this.history.execute(new ChangeBackgroundCommand(
         this.dependencies.designStore,
         this.pageId,
