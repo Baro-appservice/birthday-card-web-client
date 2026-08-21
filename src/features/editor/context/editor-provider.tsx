@@ -7,9 +7,11 @@ import { Editor } from '@/features/editor/core/editor';
 import { FabricDesignExporter, FabricEditorRenderer } from '@/features/editor/fabric';
 import {
   BrowserAssetGateway,
+  clearEmergencyDesign,
   IndexedDbDesignRepository,
   openEditorDb,
   SaveCoordinator,
+  writeEmergencyDesign,
 } from '@/features/editor/persistence';
 import { createDesignStore } from '@/features/editor/model/design-store';
 import { createEditorRuntimeStore } from '@/features/editor/model/editor-runtime-store';
@@ -42,7 +44,9 @@ export async function createBrowserEditorAssembly(cardId: string): Promise<Edito
   const uiStore = createEditorUiStore();
   const repository = new IndexedDbDesignRepository(database);
   const assetGateway = new BrowserAssetGateway(database);
-  const saveCoordinator = new SaveCoordinator(cardId, repository, uiStore);
+  const saveCoordinator = new SaveCoordinator(cardId, repository, uiStore, {
+    onLatestSaveSuccess: () => clearEmergencyDesign(cardId),
+  });
   const renderer = new FabricEditorRenderer(assetGateway);
   const editor = new Editor({
     designStore,
@@ -51,7 +55,10 @@ export async function createBrowserEditorAssembly(cardId: string): Promise<Edito
     assetGateway,
     exporter: new FabricDesignExporter(assetGateway),
     idGenerator: () => crypto.randomUUID(),
-    onDocumentChange: (design) => saveCoordinator.schedule(design),
+    onDocumentChange: (design) => {
+      writeEmergencyDesign(cardId, design);
+      saveCoordinator.schedule(design);
+    },
   });
 
   return {
