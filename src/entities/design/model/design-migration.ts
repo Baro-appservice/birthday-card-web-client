@@ -1,3 +1,5 @@
+import type { z } from 'zod';
+
 import {
   DEFAULT_BACKGROUND_COLOR,
   DEFAULT_SHAPE_COLOR,
@@ -6,7 +8,7 @@ import {
 } from './color-policy';
 import { DESIGN_VERSION, type Design } from './design';
 import type { DesignElement } from './element';
-import { designSchema, designV1Schema } from './design-schema';
+import { designSchema, designV1Schema, designV2Schema } from './design-schema';
 import { clampTextFontSize } from './text-policy';
 
 const APPROVED_FONT_FAMILIES = new Set(['system-ui', 'Arial', 'Georgia']);
@@ -17,26 +19,60 @@ type SafeParseResult =
   | { success: false };
 type PersistedSchema = { safeParse(input: unknown): SafeParseResult };
 type MigrationStep = (input: unknown) => unknown;
+type DesignV1 = z.infer<typeof designV1Schema>;
+
+type VersionMigrationResult =
+  | { status: 'ok'; value: unknown }
+  | { status: 'error'; reason: MigrationFailureReason };
 
 export type DesignMigrationResult =
   | { status: 'ok'; design: Design; changed: boolean }
   | { status: 'error'; reason: MigrationFailureReason };
 
-/**
- * Keep historical schemas registered forever once a persisted version ships.
- * A future Design v2 should add designV2Schema and a migrationSteps entry for 1.
- */
+function uniqueMigratedId(base: string, seen: Set<string>): string {
+  if (!seen.has(base)) {
+    seen.add(base);
+    return base;
+  }
+  let suffix = 2;
+  let candidate = `${base}~${suffix}`;
+  while (seen.has(candidate)) {
+    suffix += 1;
+    candidate = `${base}~${suffix}`;
+  }
+  seen.add(candidate);
+  return candidate;
+}
+
+function migrateV1ToV2(input: unknown): unknown {
+  const design = input as DesignV1;
+  const pageIds = new Set<string>();
+  return {
+    ...design,
+    version: 2 as const,
+    pages: design.pages.map((page) => {
+      const elementIds = new Set<string>();
+      return {
+        ...page,
+        id: uniqueMigratedId(page.id, pageIds),
+        elements: page.elements.map((element) => ({
+          ...element,
+          id: uniqueMigratedId(element.id, elementIds),
+        })),
+      };
+    }),
+  };
+}
+
+/** Keep every shipped schema registered so each migration parses its source exactly. */
 const persistedSchemas = new Map<number, PersistedSchema>([
   [1, designV1Schema],
+  [2, designV2Schema],
 ]);
 
-/**
- * Key = source version. Value upgrades exactly one version, e.g. 1 -> 2.
- * Keeping steps single-hop prevents future v3 work from silently bypassing the
- * compatibility rules that were needed for v1 data.
- */
+/** Key = source version. Every migration upgrades exactly one version. */
 const migrationSteps = new Map<number, MigrationStep>([
-  // [1, migrateV1ToV2],
+  [1, migrateV1ToV2],
 ]);
 
 function rotationOffset(x: number, y: number, degrees: number) {
@@ -121,28 +157,32 @@ function readVersion(input: unknown): number | null {
   return typeof input.version === 'number' && Number.isInteger(input.version) ? input.version : null;
 }
 
-function migrateToCurrentVersion(input: unknown, version: number): unknown | null {
+function migrateToCurrentVersion(input: unknown, version: number): VersionMigrationResult {
   let currentVersion = version;
   let current: unknown = input;
 
   while (currentVersion < DESIGN_VERSION) {
     const schema = persistedSchemas.get(currentVersion);
     const migration = migrationSteps.get(currentVersion);
-    if (!schema || !migration) return null;
+    if (!schema || !migration) return { status: 'error', reason: 'unsupported-version' };
 
     const parsed = schema.safeParse(current);
-    if (!parsed.success) return null;
-    current = migration(parsed.data);
+    if (!parsed.success) return { status: 'error', reason: 'corrupt' };
+    try {
+      current = migration(parsed.data);
+    } catch {
+      return { status: 'error', reason: 'corrupt' };
+    }
     currentVersion += 1;
   }
 
-  return current;
+  return { status: 'ok', value: current };
 }
 
 /**
- * Single entry point for any persisted Design JSON. Older versions are parsed
- * with their frozen schema and upgraded one version at a time before the final
- * current-schema parse and runtime normalization.
+ * Single entry point for persisted Design JSON. Each historical version is
+ * parsed with its frozen schema and upgraded one version at a time before the
+ * final current-schema parse and runtime normalization.
  */
 export function migratePersistedDesign(input: unknown): DesignMigrationResult {
   const version = readVersion(input);
@@ -152,9 +192,9 @@ export function migratePersistedDesign(input: unknown): DesignMigrationResult {
   }
 
   const migrated = migrateToCurrentVersion(input, version);
-  if (migrated === null) return { status: 'error', reason: 'unsupported-version' };
+  if (migrated.status === 'error') return migrated;
 
-  const parsed = designSchema.safeParse(migrated);
+  const parsed = designSchema.safeParse(migrated.value);
   if (!parsed.success) return { status: 'error', reason: 'corrupt' };
   const normalized = normalizeDesign(parsed.data);
   return {
