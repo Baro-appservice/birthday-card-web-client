@@ -21,6 +21,7 @@ export function transactionDone(transaction: IDBTransaction): Promise<void> {
 export function openEditorDb(name = EDITOR_DB_NAME): Promise<IDBDatabase> {
   return new Promise<IDBDatabase>((resolve, reject) => {
     let request: IDBOpenDBRequest;
+    let settled = false;
     try {
       request = indexedDB.open(name, EDITOR_DB_VERSION);
     } catch (error) {
@@ -37,8 +38,25 @@ export function openEditorDb(name = EDITOR_DB_NAME): Promise<IDBDatabase> {
         database.createObjectStore(ASSET_RECORDS_STORE, { keyPath: 'id' });
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB를 열 수 없습니다.'));
-    request.onblocked = () => reject(new Error('IndexedDB가 다른 탭에서 사용 중입니다.'));
+    request.onsuccess = () => {
+      if (settled) {
+        // A blocked request can later succeed after we already surfaced failure.
+        // Close that otherwise-unowned connection immediately.
+        request.result.close();
+        return;
+      }
+      settled = true;
+      resolve(request.result);
+    };
+    request.onerror = () => {
+      if (settled) return;
+      settled = true;
+      reject(request.error ?? new Error('IndexedDB를 열 수 없습니다.'));
+    };
+    request.onblocked = () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('IndexedDB가 다른 탭에서 사용 중입니다.'));
+    };
   });
 }
