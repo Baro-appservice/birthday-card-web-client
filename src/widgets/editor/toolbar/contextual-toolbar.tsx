@@ -241,7 +241,7 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
         onCommit={(fontSize) => update({ fontSize }, undefined, true)}
       />
       <Button variant={selected.fontWeight >= 600 ? 'primary' : 'secondary'} className={property ? propertyTouchTargetClass : ''} aria-label="굵게" onClick={() => void update({ fontWeight: selected.fontWeight >= 600 ? 400 : 700 })}>B</Button>
-      <ColorInput label="글자색" value={selected.color} inputClassName={property ? propertyTouchTargetClass : ''} onChange={(color) => void update({ color })} />
+      <ColorInput label="글자색" value={selected.color} inputClassName={property ? propertyTouchTargetClass : ''} onChange={(color, historyGroup) => void update({ color }, historyGroup)} />
       <div className="flex rounded-lg border border-[var(--border)] p-0.5" aria-label="텍스트 정렬">
         {(['left', 'center', 'right'] as const).map((alignment) => <button key={alignment} type="button" aria-label={`${alignment === 'left' ? '왼쪽' : alignment === 'center' ? '가운데' : '오른쪽'} 정렬`} aria-pressed={selected.textAlign === alignment} onClick={() => void update({ textAlign: alignment })} className={`${property ? propertyTouchTargetClass : 'size-8'} rounded-md text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] ${selected.textAlign === alignment ? 'bg-[var(--brand-soft)] text-[var(--brand-strong)]' : 'text-[var(--ink-muted)]'}`}>{alignment === 'left' ? '≡' : alignment === 'center' ? '≣' : '☰'}</button>)}
       </div>
@@ -268,10 +268,17 @@ function ImageControls({ property }: { property: boolean }) {
 function ShapeControls({ selected, property }: { selected: Extract<DesignElement, { type: 'shape' }>; property: boolean }) {
   const editor = useEditor();
   const setError = useEditorUiStore((state) => state.setError);
-  const update = async (fill: string) => {
-    try { await editor.updateSelection({ type: 'shape', changes: { fill } }); setError(null); } catch (error) { setError(error instanceof Error ? error.message : '도형 색을 바꾸지 못했습니다. 다시 시도해 주세요.'); }
+  const update = async (fill: string, historyGroup?: string) => {
+    try {
+      const patch = { type: 'shape' as const, changes: { fill } };
+      if (historyGroup) await editor.updateSelection(patch, { historyGroup });
+      else await editor.updateSelection(patch);
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '도형 색을 바꾸지 못했습니다. 다시 시도해 주세요.');
+    }
   };
-  return <ColorInput label="채우기" value={selected.fill} inputClassName={property ? propertyTouchTargetClass : ''} onChange={(color) => void update(color)} />;
+  return <ColorInput label="채우기" value={selected.fill} inputClassName={property ? propertyTouchTargetClass : ''} onChange={(color, historyGroup) => void update(color, historyGroup)} />;
 }
 
 export function ContextualToolbar({ variant = 'desktop' }: { variant?: 'desktop' | 'property' }) {
