@@ -18,6 +18,7 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 8192;
 const MAX_IMAGE_PIXELS = 32_000_000;
 const MAX_ID_GENERATION_ATTEMPTS = 3;
+const ASSET_GC_GRACE_MS = 5 * 60 * 1_000;
 
 export interface AssetDimensions {
   width: number;
@@ -29,6 +30,7 @@ export type AssetDimensionDecoder = (file: Blob) => Promise<AssetDimensions>;
 export interface BrowserAssetGatewayOptions {
   decoder?: AssetDimensionDecoder;
   idGenerator?: () => string;
+  now?: () => number;
 }
 
 function readFileBytes(file: File): Promise<ArrayBuffer> {
@@ -144,6 +146,7 @@ export class BrowserAssetGateway implements AssetGateway {
 
   private readonly decoder: AssetDimensionDecoder;
   private readonly idGenerator: () => string;
+  private readonly now: () => number;
 
   constructor(
     private readonly database: IDBDatabase,
@@ -151,6 +154,7 @@ export class BrowserAssetGateway implements AssetGateway {
   ) {
     this.decoder = options.decoder ?? decodeImageDimensions;
     this.idGenerator = options.idGenerator ?? (() => crypto.randomUUID());
+    this.now = options.now ?? Date.now;
   }
 
   async upload(file: File): Promise<AssetReference> {
@@ -221,6 +225,7 @@ export class BrowserAssetGateway implements AssetGateway {
     this.assertActive();
     const referenced = new Set(protectedAssetIds);
     collectEmergencyAssetIds(referenced);
+    const cutoff = this.now() - ASSET_GC_GRACE_MS;
 
     let transaction: IDBTransaction;
     try {
@@ -235,10 +240,10 @@ export class BrowserAssetGateway implements AssetGateway {
     const designStore = transaction.objectStore(DESIGN_RECORDS_STORE);
     const assetStore = transaction.objectStore(ASSET_RECORDS_STORE);
     const designRequest = designStore.getAll();
-    const assetKeysRequest = assetStore.getAllKeys();
+    const assetsRequest = assetStore.getAll();
     const deleted: string[] = [];
     let records: RawDesignRecord[] | null = null;
-    let assetKeys: IDBValidKey[] | null = null;
+    let assets: AssetRecord[] | null = null;
     let processingError: { value: unknown } | null = null;
     let deletesQueued = false;
 
@@ -248,7 +253,7 @@ export class BrowserAssetGateway implements AssetGateway {
     };
 
     const queueDeletesWhenReady = () => {
-      if (deletesQueued || processingError || records === null || assetKeys === null) return;
+      if (deletesQueued || processingError || records === null || assets === null) return;
       deletesQueued = true;
       try {
         for (const record of records) {
@@ -256,15 +261,21 @@ export class BrowserAssetGateway implements AssetGateway {
           collectUnknownAssetIds(record.backup, referenced);
         }
 
-        for (const key of assetKeys) {
-          if (typeof key !== 'string') continue;
+        for (const asset of assets) {
+          const assetId = asset.id;
+          if (typeof assetId !== 'string') continue;
+          // Another tab can persist an asset slightly before it connects that id
+          // to Design/emergency state. Never collect a freshly-created record in
+          // that vulnerable window. Missing/invalid timestamps are kept as the
+          // conservative choice rather than risking destructive cleanup.
+          if (!Number.isFinite(asset.createdAt) || asset.createdAt > cutoff) continue;
           if (
-            referenced.has(key)
-            || this.resolutionPromises.has(key)
-            || this.removalPromises.has(key)
+            referenced.has(assetId)
+            || this.resolutionPromises.has(assetId)
+            || this.removalPromises.has(assetId)
           ) continue;
-          assetStore.delete(key);
-          deleted.push(key);
+          assetStore.delete(assetId);
+          deleted.push(assetId);
         }
       } catch (error) {
         abortWith(error);
@@ -277,8 +288,8 @@ export class BrowserAssetGateway implements AssetGateway {
       records = designRequest.result as RawDesignRecord[];
       queueDeletesWhenReady();
     };
-    assetKeysRequest.onsuccess = () => {
-      assetKeys = assetKeysRequest.result;
+    assetsRequest.onsuccess = () => {
+      assets = assetsRequest.result as AssetRecord[];
       queueDeletesWhenReady();
     };
 
@@ -330,7 +341,7 @@ export class BrowserAssetGateway implements AssetGateway {
       const request = transaction.objectStore(ASSET_RECORDS_STORE).add({
         ...asset,
         bytes: input.bytes.slice(0),
-        createdAt: Date.now(),
+        createdAt: this.now(),
       } satisfies AssetRecord);
       try {
         await Promise.all([requestToPromise(request), transactionDone(transaction)]);
