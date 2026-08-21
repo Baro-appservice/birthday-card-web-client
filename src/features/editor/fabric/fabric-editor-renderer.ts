@@ -141,9 +141,8 @@ function patchObject(object: FabricObject, element: DesignElement): void {
   object.setCoords();
 }
 
-function elementChanged(previous: DesignElement | undefined, next: DesignElement): boolean {
-  if (!previous) return true;
-  return JSON.stringify(previous) !== JSON.stringify(next);
+function sameObjectOrder(current: FabricObject[], next: FabricObject[]): boolean {
+  return current.length === next.length && current.every((object, index) => object === next[index]);
 }
 
 export class FabricEditorRenderer implements EditorRenderer {
@@ -155,6 +154,7 @@ export class FabricEditorRenderer implements EditorRenderer {
   private renderGeneration = 0;
   private disposed = false;
   private renderedSize: { width: number; height: number } | null = null;
+  private renderedBackground: string | null = null;
 
   constructor(private readonly assetGateway: Pick<AssetGateway, 'resolveUrl'>) {}
 
@@ -195,30 +195,51 @@ export class FabricEditorRenderer implements EditorRenderer {
     if (!this.isCurrent(generation, canvas)) return;
 
     try {
+      let visualChange = false;
       for (const entry of prepared) {
-        if (entry.reused && elementChanged(entry.previous, entry.element)) {
+        // Store operations use immutable element replacement, so reference identity
+        // is a cheap and reliable change detector for retained runtime objects.
+        if (entry.reused && entry.previous !== entry.element) {
           patchObject(entry.object, entry.element);
+          visualChange = true;
         }
       }
 
       const nextObjects = prepared.map((entry) => entry.object);
       const nextObjectSet = new Set(nextObjects);
-      const objectsToRemove = canvas.getObjects().filter((object) => !nextObjectSet.has(object));
-      if (objectsToRemove.length > 0) canvas.remove(...objectsToRemove);
+      const currentObjects = canvas.getObjects();
+      const objectsToRemove = currentObjects.filter((object) => !nextObjectSet.has(object));
+      if (objectsToRemove.length > 0) {
+        canvas.remove(...objectsToRemove);
+        visualChange = true;
+      }
 
       const existingObjects = new Set(canvas.getObjects());
       for (const object of nextObjects) {
-        if (!existingObjects.has(object)) canvas.add(object);
+        if (!existingObjects.has(object)) {
+          canvas.add(object);
+          visualChange = true;
+        }
       }
-      nextObjects.forEach((object, index) => canvas.moveObjectTo(object, index));
+
+      const objectsAfterMembershipChange = canvas.getObjects();
+      if (!sameObjectOrder(objectsAfterMembershipChange, nextObjects)) {
+        nextObjects.forEach((object, index) => canvas.moveObjectTo(object, index));
+        visualChange = true;
+      }
 
       if (!this.renderedSize
         || this.renderedSize.width !== design.width
         || this.renderedSize.height !== design.height) {
         canvas.setDimensions({ width: design.width, height: design.height });
         this.renderedSize = { width: design.width, height: design.height };
+        visualChange = true;
       }
-      canvas.backgroundColor = page.background;
+      if (this.renderedBackground !== page.background) {
+        canvas.backgroundColor = page.background;
+        this.renderedBackground = page.background;
+        visualChange = true;
+      }
 
       this.objectsById.clear();
       this.renderedElements.clear();
@@ -228,7 +249,7 @@ export class FabricEditorRenderer implements EditorRenderer {
       }
 
       this.select(selection);
-      canvas.requestRenderAll();
+      if (visualChange) canvas.requestRenderAll();
     } catch (error) {
       if (this.isCurrent(generation, canvas)) canvas.requestRenderAll();
       throw error;
@@ -296,6 +317,7 @@ export class FabricEditorRenderer implements EditorRenderer {
     this.objectsById.clear();
     this.renderedElements.clear();
     this.renderedSize = null;
+    this.renderedBackground = null;
     const canvas = this.canvas;
     this.canvas = undefined;
     if (canvas) void canvas.dispose();
