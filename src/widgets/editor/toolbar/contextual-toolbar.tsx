@@ -70,7 +70,7 @@ function TextContentInput({
     const historyGroup = ensureHistoryGroup();
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
-      void commit(value, historyGroup);
+      void commit(value, historyGroup).catch(() => undefined);
     }, textCommitDelayMs);
   };
 
@@ -102,9 +102,11 @@ function TextContentInput({
       onBlur={() => {
         focusedRef.current = false;
         const historyGroup = ensureHistoryGroup();
-        void commit(draft, historyGroup).finally(() => {
-          if (historyGroupRef.current === historyGroup) historyGroupRef.current = null;
-        });
+        void commit(draft, historyGroup)
+          .catch(() => undefined)
+          .finally(() => {
+            if (historyGroupRef.current === historyGroup) historyGroupRef.current = null;
+          });
       }}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
@@ -188,6 +190,7 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
     changes: Partial<Pick<TextElement,
       'text' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>,
     historyGroup?: string,
+    propagateError = false,
   ) => {
     try {
       await editor.updateSelection(
@@ -197,6 +200,7 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : '텍스트 서식을 바꾸지 못했습니다. 다시 시도해 주세요.');
+      if (propagateError) throw error;
     }
   };
   const displayedFontFamily = approvedFontFamilies.includes(
@@ -209,7 +213,7 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
         key={selected.id}
         selected={selected}
         property={property}
-        onCommit={(text, historyGroup) => update({ text }, historyGroup)}
+        onCommit={(text, historyGroup) => update({ text }, historyGroup, true)}
       />
       <label className="sr-only" htmlFor="font-family">글꼴</label>
       <select id="font-family" value={displayedFontFamily} onChange={(event) => void update({ fontFamily: event.target.value })} className={`${property ? propertyTouchTargetClass : 'h-9'} rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}>
