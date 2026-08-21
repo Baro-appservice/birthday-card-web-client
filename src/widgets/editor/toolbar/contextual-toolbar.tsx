@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   TEXT_FONT_SIZE_MAX,
@@ -41,10 +41,10 @@ function TextContentInput({
   const focusedRef = useRef(false);
   const composingRef = useRef(false);
 
-  const replaceDraft = (value: string) => {
+  const replaceDraft = useCallback((value: string) => {
     draftRef.current = value;
     setDraft(value);
-  };
+  }, []);
 
   const ensureHistoryGroup = () => {
     if (!historyGroupRef.current) {
@@ -91,7 +91,7 @@ function TextContentInput({
     if (focusedRef.current) return;
     replaceDraft(selected.text);
     submittedRef.current = selected.text;
-  }, [selected.id, selected.text]);
+  }, [replaceDraft, selected.id, selected.text]);
 
   useEffect(() => () => {
     if (timerRef.current !== null) clearTimeout(timerRef.current);
