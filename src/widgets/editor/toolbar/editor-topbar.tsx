@@ -3,6 +3,7 @@
 import { Button } from '@/shared/ui/button';
 import { IconButton } from '@/shared/ui/icon-button';
 import { useEditor, useEditorSaveCoordinator, useEditorUiStore } from '@/features/editor/hooks/use-editor';
+import { birthdayCardFilename, downloadBlob } from '@/features/editor/lib/download-blob';
 
 const saveLabels = {
   saving: '저장 중',
@@ -10,7 +11,7 @@ const saveLabels = {
   error: '저장 실패 · 다시 시도',
 } as const;
 
-export function EditorTopbar({ compact = false }: { compact?: boolean }) {
+export function EditorTopbar({ cardId, compact = false }: { cardId: string; compact?: boolean }) {
   const editor = useEditor();
   const saveCoordinator = useEditorSaveCoordinator();
   const saveStatus = useEditorUiStore((state) => state.saveStatus);
@@ -26,12 +27,7 @@ export function EditorTopbar({ compact = false }: { compact?: boolean }) {
   const download = async () => {
     try {
       const blob = await editor.exportPng();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'my-birthday-card.png';
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, birthdayCardFilename(cardId));
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'PNG를 저장하지 못했습니다. 다시 시도해 주세요.');

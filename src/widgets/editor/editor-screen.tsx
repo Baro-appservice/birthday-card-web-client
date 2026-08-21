@@ -20,6 +20,8 @@ import { ShapePanel } from './sidebar/shape-panel';
 import { TextPanel } from './sidebar/text-panel';
 import { ContextualToolbar } from './toolbar/contextual-toolbar';
 import { EditorTopbar } from './toolbar/editor-topbar';
+import { EditorErrorState } from './editor-error-state';
+import { RecoveryDialog } from './recovery-dialog';
 
 export function EditorScreen({
   cardId,
@@ -42,27 +44,49 @@ function EditorSessionScreen({ cardId }: { cardId: string }) {
     return <main className="grid min-h-dvh place-items-center bg-[var(--workspace)] text-[var(--ink)]">카드를 불러오고 있습니다.</main>;
   }
   if (session.status === 'error') {
-    return <main className="grid min-h-dvh place-items-center bg-[var(--workspace)] text-[var(--ink)]">카드를 불러오지 못했습니다.</main>;
-  }
-  if (session.status === 'recoverable') {
     return (
-      <main className="grid min-h-dvh place-items-center gap-4 p-6 text-center">
-        <div>
-          <h1 className="font-[ui-rounded,Arial_Rounded_MT_Bold,system-ui] text-xl text-[var(--ink)]">저장된 카드를 복구할까요?</h1>
-          <p className="mt-2 text-sm text-[var(--ink-muted)]">복구를 선택하기 전에는 저장 내용을 변경하지 않습니다.</p>
-        </div>
-        <div className="flex gap-3">
-          <button type="button" onClick={() => session.recover('backup')}>백업 복구</button>
-          <button type="button" onClick={() => session.recover('sample')}>새 샘플로 시작</button>
-        </div>
-      </main>
+      <EditorErrorState
+        title="카드를 불러오지 못했습니다."
+        description="브라우저 저장소를 확인한 뒤 다시 시도해 주세요."
+        onAction={() => window.location.reload()}
+      />
     );
   }
+  if (session.status === 'recoverable') {
+    return <RecoverableEditorSession onRecover={session.recover} />;
+  }
 
-  return <EditorResponsiveLayout />;
+  return <EditorResponsiveLayout cardId={cardId} />;
 }
 
-function EditorResponsiveLayout() {
+function RecoverableEditorSession({
+  onRecover,
+}: {
+  onRecover: ReturnType<typeof useEditorSession>['recover'];
+}) {
+  const [dialogOpen, setDialogOpen] = useState(true);
+  const notice = useEditorUiStore((state) => state.recoveryNotice);
+  if (!notice) return null;
+  return (
+    <>
+      <EditorErrorState
+        title="저장된 카드에 복구가 필요합니다."
+        description="손상되었거나 현재 버전에서 열 수 없는 저장 기록을 발견했습니다."
+        actionLabel="복구 옵션 열기"
+        onAction={() => setDialogOpen(true)}
+      />
+      {dialogOpen ? (
+        <RecoveryDialog
+          notice={notice}
+          onClose={() => setDialogOpen(false)}
+          onRecover={onRecover}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function EditorResponsiveLayout({ cardId }: { cardId: string }) {
   const isMobile = useMediaQuery('(max-width: 767px)');
   const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
   const editor = useEditor();
@@ -74,7 +98,7 @@ function EditorResponsiveLayout() {
 
   return (
     <main className="grid min-h-dvh grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--workspace)]">
-      <EditorTopbar compact={isMobile} />
+      <EditorTopbar cardId={cardId} compact={isMobile} />
       <div className={`grid min-h-0 ${isMobile || isTablet ? 'grid-cols-[minmax(0,1fr)]' : 'grid-cols-[minmax(17.5rem,22rem)_minmax(0,1fr)]'}`}>
         {!isMobile && !isTablet ? <div role="navigation" aria-label="데스크톱 편집 도구"><EditorSidebar /></div> : null}
         {isTablet ? <TabletDrawer /> : null}

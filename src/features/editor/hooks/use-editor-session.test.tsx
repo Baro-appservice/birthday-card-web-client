@@ -1,6 +1,6 @@
 import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { StrictMode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createSampleDesign } from '@/entities/design';
 
@@ -54,7 +54,7 @@ describe('useEditorSession', () => {
     expect(kit.saveCoordinator.schedule).not.toHaveBeenCalled();
   });
 
-  it('사용자가 복구를 선택한 경우에만 backup을 적용하고 저장한다', async () => {
+  it('사용자가 복구를 선택한 경우에만 backup을 적용하고 저장을 flush한 뒤 준비 상태가 된다', async () => {
     const backup = createSampleDesign();
     backup.pages[0].background = '#f0e0ff';
     const kit = createEditorTestKit({
@@ -65,11 +65,22 @@ describe('useEditorSession', () => {
     });
 
     await waitFor(() => expect(result.current.status).toBe('recoverable'));
-    act(() => result.current.recover('backup'));
+    let finishFlush!: () => void;
+    const flushPending = new Promise<void>((resolve) => { finishFlush = resolve; });
+    vi.mocked(kit.saveCoordinator.flush).mockReturnValueOnce(flushPending);
+    let recovery!: Promise<void>;
+    act(() => { recovery = result.current.recover('backup'); });
 
-    expect(result.current.status).toBe('ready');
+    expect(result.current.status).toBe('recoverable');
     expect(kit.designStore.getState().design.pages[0].background).toBe('#f0e0ff');
     expect(kit.saveCoordinator.schedule).toHaveBeenCalledOnce();
+    expect(kit.saveCoordinator.flush).toHaveBeenCalledOnce();
+    expect(kit.uiStore.getState().recoveryNotice).not.toBeNull();
+
+    finishFlush();
+    await act(async () => { await recovery; });
+
+    expect(result.current.status).toBe('ready');
     expect(kit.uiStore.getState().recoveryNotice).toBeNull();
   });
 

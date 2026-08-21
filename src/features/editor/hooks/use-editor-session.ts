@@ -9,7 +9,7 @@ export type RecoverySource = 'backup' | 'sample';
 
 export interface EditorSession {
   status: EditorSessionStatus;
-  recover(source: RecoverySource): void;
+  recover(source: RecoverySource): Promise<void>;
 }
 
 function useEditorSessionContext() {
@@ -58,14 +58,15 @@ export function useEditorSession(cardId: string): EditorSession {
     return () => { cancelled = true; };
   }, [cardId, designStore, repository, runtimeStore, saveCoordinator, uiStore]);
 
-  const recover = useCallback((source: RecoverySource) => {
+  const recover = useCallback(async (source: RecoverySource) => {
     const notice = uiStore.getState().recoveryNotice;
     if (!notice) return;
     const design = source === 'backup' && notice.backup ? notice.backup : createSampleDesign();
     designStore.getState().replaceDesign(design);
     runtimeStore.getState().setActivePageId(design.pages[0]?.id ?? 'page-1');
-    uiStore.getState().setRecoveryNotice(null);
     saveCoordinator.schedule(design);
+    await saveCoordinator.flush();
+    uiStore.getState().setRecoveryNotice(null);
     setStatus('ready');
   }, [designStore, runtimeStore, saveCoordinator, uiStore]);
 

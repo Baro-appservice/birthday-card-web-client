@@ -68,6 +68,21 @@ describe('desktop editor tools', () => {
     expect(selectElement).toHaveBeenCalledWith('title');
   });
 
+  it('선택한 텍스트 내용을 Editor facade로 수정한다', async () => {
+    const user = userEvent.setup();
+    const kit = createEditorTestKit();
+    kit.runtimeStore.getState().setSelectedElementIds(['title']);
+    render(<ContextualToolbar />, { wrapper: kit.wrapper });
+
+    const input = screen.getByRole('textbox', { name: '선택한 텍스트 내용' });
+    await user.clear(input);
+    await user.type(input, '올해도 제 생일을 축하해 주세요!');
+
+    await waitFor(() => expect(
+      kit.designStore.getState().design.pages[0].elements.find((element) => element.id === 'title'),
+    ).toMatchObject({ text: '올해도 제 생일을 축하해 주세요!' }));
+  });
+
   it('텍스트 동작 실패는 중앙 toast로 알리고 성공하면 이전 오류를 지운다', async () => {
     const user = userEvent.setup();
     const kit = createEditorTestKit();
@@ -83,7 +98,7 @@ describe('desktop editor tools', () => {
 
   it('저장 상태를 하나의 polite status 영역으로 갱신한다', () => {
     const kit = createEditorTestKit();
-    render(<EditorTopbar />, { wrapper: kit.wrapper });
+    render(<EditorTopbar cardId="local-demo" />, { wrapper: kit.wrapper });
 
     expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
     expect(screen.getByRole('status')).toHaveTextContent('저장됨');
@@ -91,5 +106,18 @@ describe('desktop editor tools', () => {
     expect(screen.getByRole('status')).toHaveTextContent('저장 중');
     act(() => kit.uiStore.getState().setSaveStatus('error'));
     expect(screen.getByRole('status')).toHaveTextContent('저장 실패 · 다시 시도');
+  });
+
+  it('PNG 내보내기 실패는 Design을 바꾸지 않고 중앙 Toast로 알린다', async () => {
+    const user = userEvent.setup();
+    const kit = createEditorTestKit();
+    const before = structuredClone(kit.designStore.getState().design);
+    vi.spyOn(kit.editor, 'exportPng').mockRejectedValue(new Error('PNG 렌더링 실패'));
+    render(<><EditorTopbar cardId="local-demo" /><Toast /></>, { wrapper: kit.wrapper });
+
+    await user.click(screen.getByRole('button', { name: 'PNG 저장' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('PNG 렌더링 실패');
+    expect(kit.designStore.getState().design).toEqual(before);
   });
 });

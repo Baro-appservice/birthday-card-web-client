@@ -32,7 +32,7 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
   const editor = useEditor();
   const setError = useEditorUiStore((state) => state.setError);
   const update = async (changes: Partial<Pick<TextElement,
-    'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>) => {
+    'text' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>) => {
     try {
       await editor.updateSelection({ type: 'text', changes });
       setError(null);
@@ -42,6 +42,14 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
   };
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <label className="sr-only" htmlFor="selected-text-content">선택한 텍스트 내용</label>
+      <input
+        id="selected-text-content"
+        type="text"
+        value={selected.text}
+        onChange={(event) => void update({ text: event.target.value })}
+        className={`${property ? propertyTouchTargetClass : 'h-9'} min-w-48 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}
+      />
       <label className="sr-only" htmlFor="font-family">글꼴</label>
       <select id="font-family" value={selected.fontFamily} onChange={(event) => void update({ fontFamily: event.target.value })} className={`${property ? propertyTouchTargetClass : 'h-9'} rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}>
         <option value="system-ui">system-ui</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option>

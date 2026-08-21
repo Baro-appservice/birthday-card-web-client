@@ -19,3 +19,14 @@
   width: 100%;
   height: 100%;
 }
+
+.frame :global(.canvas-container) {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.frame :global(.lower-canvas),
+.frame :global(.upper-canvas) {
+  width: 100% !important;
+  height: 100% !important;
+}
