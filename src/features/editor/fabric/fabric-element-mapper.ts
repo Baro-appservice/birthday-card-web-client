@@ -71,6 +71,9 @@ function commonOptions(element: DesignElement) {
     opacity: element.opacity,
     originX: 'left' as const,
     originY: 'top' as const,
+    lockScalingFlip: true,
+    lockSkewingX: true,
+    lockSkewingY: true,
   };
 }
 
@@ -85,13 +88,13 @@ function mapText(element: Extract<DesignElement, { type: 'text' }>): FabricObjec
     fontWeight: element.fontWeight,
     fill: element.color,
     textAlign: element.textAlign,
+    splitByGrapheme: true,
     scaleX: 1,
     scaleY: 1,
   });
 
-  // Text height is content-derived. Horizontal controls resize the text frame;
-  // corner controls may scale the whole text and are normalized back into
-  // width + fontSize after the Fabric interaction ends.
+  // Textbox side controls resize the wrapping width. Corner controls scale the
+  // text uniformly at runtime; the Editor normalizes that scale into width + fontSize.
   textbox.setControlsVisibility({ mt: false, mb: false });
   return textbox;
 }
@@ -105,19 +108,43 @@ function mapShape(element: Extract<DesignElement, { type: 'shape' }>): FabricObj
   });
 }
 
+function applyCoverImage(image: FabricImage, frameWidth: number, frameHeight: number): void {
+  const original = image.getOriginalSize();
+  const sourceWidth = positiveOr(original.width, frameWidth);
+  const sourceHeight = positiveOr(original.height, frameHeight);
+  const frameAspect = frameWidth / frameHeight;
+  const sourceAspect = sourceWidth / sourceHeight;
+  let cropWidth = sourceWidth;
+  let cropHeight = sourceHeight;
+  let cropX = 0;
+  let cropY = 0;
+
+  if (sourceAspect > frameAspect) {
+    cropWidth = sourceHeight * frameAspect;
+    cropX = (sourceWidth - cropWidth) / 2;
+  } else if (sourceAspect < frameAspect) {
+    cropHeight = sourceWidth / frameAspect;
+    cropY = (sourceHeight - cropHeight) / 2;
+  }
+
+  image.set({
+    cropX,
+    cropY,
+    width: cropWidth,
+    height: cropHeight,
+    scaleX: frameWidth / cropWidth,
+    scaleY: frameHeight / cropHeight,
+  });
+}
+
 async function mapImage(
   element: Extract<DesignElement, { type: 'image' }>,
   assetGateway: Pick<AssetGateway, 'resolveUrl'>,
 ): Promise<FabricObject> {
   try {
     const image = await FabricImage.fromURL(await assetGateway.resolveUrl(element.assetId));
-    const intrinsicWidth = positiveOr(image.width, element.width);
-    const intrinsicHeight = positiveOr(image.height, element.height);
-    image.set({
-      ...commonOptions(element),
-      scaleX: element.width / intrinsicWidth,
-      scaleY: element.height / intrinsicHeight,
-    });
+    image.set(commonOptions(element));
+    applyCoverImage(image, element.width, element.height);
     return image;
   } catch {
     return new Rect({
