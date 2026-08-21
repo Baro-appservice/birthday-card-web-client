@@ -58,6 +58,7 @@ export interface EditorApi {
   redo(): Promise<void>;
   setZoom(zoom: number): void;
   selectElement(elementId: string): Promise<void>;
+  clearSelection(): Promise<void>;
   setBackground(color: string): Promise<void>;
   exportPng(): Promise<Blob>;
 }
@@ -97,6 +98,11 @@ function createShapeElement(id: string, shape: ShapeElement['shape']): ShapeElem
 function fitInside(width: number, height: number, maxWidth: number, maxHeight: number) {
   const scale = Math.min(1, maxWidth / width, maxHeight / height);
   return { width: width * scale, height: height * scale };
+}
+
+function hasActualChanges(element: DesignElement, changes: Partial<DesignElement>): boolean {
+  const current = element as unknown as Record<string, unknown>;
+  return Object.entries(changes).some(([key, value]) => current[key] !== value);
 }
 
 export class Editor implements EditorApi {
@@ -225,10 +231,7 @@ export class Editor implements EditorApi {
       }
       const selected = this.singleSelectedElement();
       if (!selected || selected.type !== patch.type) return;
-      const changed = Object.entries(patch.changes).some(
-        ([key, value]) => selected[key as keyof typeof selected] !== value,
-      );
-      if (!changed) return;
+      if (!hasActualChanges(selected, patch.changes as Partial<DesignElement>)) return;
       await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
         this.dependencies.designStore,
         this.pageId,
@@ -266,9 +269,7 @@ export class Editor implements EditorApi {
       if (!this.history.canUndo()) return;
       const previousSelection = [...this.selectedElementIds];
       await this.applyDocumentMutation(() => { this.history.undo(); });
-      const survivingSelection = previousSelection.filter((id) => this.findElement(id));
-      this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection.slice(0, 1));
-      this.dependencies.renderer.select(survivingSelection.slice(0, 1));
+      await this.restoreSurvivingSelection(previousSelection);
     });
   }
 
@@ -278,9 +279,7 @@ export class Editor implements EditorApi {
       if (!this.history.canRedo()) return;
       const previousSelection = [...this.selectedElementIds];
       await this.applyDocumentMutation(() => { this.history.redo(); });
-      const survivingSelection = previousSelection.filter((id) => this.findElement(id));
-      this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection.slice(0, 1));
-      this.dependencies.renderer.select(survivingSelection.slice(0, 1));
+      await this.restoreSurvivingSelection(previousSelection);
     });
   }
 
@@ -293,25 +292,14 @@ export class Editor implements EditorApi {
     return this.enqueue(async () => {
       const generation = this.activeGeneration();
       if (!this.findElement(elementId)) return;
-      const previousSelection = [...this.selectedElementIds];
-      try {
-        this.dependencies.runtimeStore.getState().setSelectedElementIds([elementId]);
-        this.dependencies.renderer.select([elementId]);
-        this.assertGeneration(generation);
-      } catch (error) {
-        this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
-        if (this.isActiveGeneration(generation)) {
-          try {
-            this.dependencies.renderer.select(previousSelection);
-            this.assertGeneration(generation);
-          } catch {
-            if (this.isActiveGeneration(generation)) {
-              this.dependencies.runtimeStore.getState().setCanvasStatus('error');
-            }
-          }
-        }
-        throw error;
-      }
+      await this.applySelection([elementId], generation);
+    });
+  }
+
+  async clearSelection(): Promise<void> {
+    return this.enqueue(async () => {
+      const generation = this.activeGeneration();
+      await this.applySelection([], generation);
     });
   }
 
@@ -467,14 +455,46 @@ export class Editor implements EditorApi {
     await this.enqueue(async () => {
       this.assertGeneration(eventGeneration);
       const selected = this.findElement(event.elementId);
-      if (!selected || selected.type !== 'text') return;
-      await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
+      if (!selected || selected.type !== 'text' || selected.text === event.after) return;
+      // Fabric already owns the live Textbox while the caret is active. Update the
+      // canonical Design/history and persistence without re-rendering that object.
+      this.history.execute(new UpdateElementCommand(
         this.dependencies.designStore,
         this.pageId,
         event.elementId,
         { text: event.after },
-      )));
+        event.historyGroup,
+      ));
+      this.dependencies.onDocumentChange(this.design);
     });
+  }
+
+  private async applySelection(selection: string[], generation: number): Promise<void> {
+    const previousSelection = [...this.selectedElementIds];
+    try {
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(selection);
+      this.dependencies.renderer.select(selection);
+      this.assertGeneration(generation);
+    } catch (error) {
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
+      if (this.isActiveGeneration(generation)) {
+        try {
+          this.dependencies.renderer.select(previousSelection);
+          this.assertGeneration(generation);
+        } catch {
+          if (this.isActiveGeneration(generation)) {
+            this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+          }
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async restoreSurvivingSelection(previousSelection: string[]): Promise<void> {
+    const survivingSelection = previousSelection.filter((id) => this.findElement(id)).slice(0, 1);
+    this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection);
+    this.dependencies.renderer.select(survivingSelection);
   }
 
   private async rethrowAfterUploadedAssetCompensation(
