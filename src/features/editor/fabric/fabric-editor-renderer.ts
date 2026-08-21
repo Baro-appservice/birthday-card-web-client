@@ -146,7 +146,14 @@ function sameObjectOrder(current: FabricObject[], next: FabricObject[]): boolean
 }
 
 function disposeObjects(objects: Iterable<FabricObject>): void {
-  for (const object of objects) object.dispose();
+  for (const object of objects) {
+    try {
+      object.dispose();
+    } catch {
+      // Disposal is best effort and must never turn a successful editor mutation
+      // into a failed transaction. The Canvas no longer owns these objects.
+    }
+  }
 }
 
 export class FabricEditorRenderer implements EditorRenderer {
@@ -202,6 +209,8 @@ export class FabricEditorRenderer implements EditorRenderer {
       return;
     }
 
+    let retiredObjects: FabricObject[] = [];
+    let mapsCommitted = false;
     try {
       let visualChange = false;
       for (const entry of prepared) {
@@ -216,10 +225,11 @@ export class FabricEditorRenderer implements EditorRenderer {
       const nextObjects = prepared.map((entry) => entry.object);
       const nextObjectSet = new Set(nextObjects);
       const currentObjects = canvas.getObjects();
-      const objectsToRemove = currentObjects.filter((object) => !nextObjectSet.has(object));
-      if (objectsToRemove.length > 0) {
-        canvas.remove(...objectsToRemove);
-        disposeObjects(objectsToRemove);
+      retiredObjects = currentObjects.filter((object) => !nextObjectSet.has(object));
+      if (retiredObjects.length > 0) {
+        // Keep removed objects alive until the new render fully commits. If a
+        // later Canvas step fails, Editor rollback can still reuse old objects.
+        canvas.remove(...retiredObjects);
         visualChange = true;
       }
 
@@ -256,10 +266,15 @@ export class FabricEditorRenderer implements EditorRenderer {
         this.objectsById.set(entry.element.id, entry.object);
         this.renderedElements.set(entry.element.id, entry.element);
       }
+      mapsCommitted = true;
 
       this.select(selection);
       if (visualChange) canvas.requestRenderAll();
+      disposeObjects(retiredObjects);
     } catch (error) {
+      // Once maps have committed, old objects are no longer a rollback source and
+      // may be released. Before that point the old maps intentionally retain them.
+      if (mapsCommitted) disposeObjects(retiredObjects);
       if (this.isCurrent(generation, canvas)) canvas.requestRenderAll();
       throw error;
     }
