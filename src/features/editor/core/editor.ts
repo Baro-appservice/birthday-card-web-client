@@ -1,4 +1,5 @@
 import {
+  assertHexColor,
   assertTextFontSize,
   collectDesignAssetIds,
   type Design,
@@ -62,7 +63,7 @@ export interface EditorApi {
   setZoom(zoom: number): void;
   selectElement(elementId: string): Promise<void>;
   clearSelection(): Promise<void>;
-  setBackground(color: string): Promise<void>;
+  setBackground(color: string, options?: UpdateSelectionOptions): Promise<void>;
   exportPng(): Promise<Blob>;
   flushMaintenance(): Promise<void>;
   close(): Promise<void>;
@@ -234,8 +235,11 @@ export class Editor implements EditorApi {
   ): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
-      if (patch.type === 'text' && patch.changes.fontSize !== undefined) {
-        assertTextFontSize(patch.changes.fontSize);
+      if (patch.type === 'text') {
+        if (patch.changes.fontSize !== undefined) assertTextFontSize(patch.changes.fontSize);
+        if (patch.changes.color !== undefined) assertHexColor(patch.changes.color);
+      } else if (patch.changes.fill !== undefined) {
+        assertHexColor(patch.changes.fill);
       }
       const selected = this.singleSelectedElement();
       if (!selected || selected.type !== patch.type) return;
@@ -311,15 +315,17 @@ export class Editor implements EditorApi {
     });
   }
 
-  async setBackground(color: string): Promise<void> {
+  async setBackground(color: string, options?: UpdateSelectionOptions): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
+      assertHexColor(color);
       const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
       if (!page || page.background === color) return;
       await this.applyDocumentMutation(() => this.history.execute(new ChangeBackgroundCommand(
         this.dependencies.designStore,
         this.pageId,
         color,
+        options?.historyGroup,
       )));
     });
   }
