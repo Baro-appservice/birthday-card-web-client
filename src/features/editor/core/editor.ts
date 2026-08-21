@@ -1,5 +1,6 @@
 import {
   assertTextFontSize,
+  collectDesignAssetIds,
   type Design,
   type DesignElement,
   type ShapeElement,
@@ -21,6 +22,8 @@ import { ReorderElementCommand } from '../commands/reorder-element-command';
 import { TransformElementCommand } from '../commands/transform-element-command';
 import { UpdateElementCommand } from '../commands/update-element-command';
 import { EditorHistory } from './editor-history';
+
+const ASSET_GC_IDLE_MS = 2_000;
 
 export interface EditorDependencies {
   designStore: DesignStore;
@@ -61,6 +64,7 @@ export interface EditorApi {
   clearSelection(): Promise<void>;
   setBackground(color: string): Promise<void>;
   exportPng(): Promise<Blob>;
+  flushMaintenance(): Promise<void>;
 }
 
 const DEFAULT_TEXT: Omit<TextElement, 'id'> = {
@@ -109,6 +113,7 @@ export class Editor implements EditorApi {
   private readonly history = new EditorHistory();
   private readonly unsubscribe: () => void;
   private operationChain: Promise<void> = Promise.resolve();
+  private assetGcTimer: ReturnType<typeof setTimeout> | null = null;
   private mountAttempted = false;
   private disposed = false;
   private generation = 0;
@@ -137,6 +142,7 @@ export class Editor implements EditorApi {
         this.dependencies.renderer.select(this.selectedElementIds);
         this.assertGeneration(generation);
         this.dependencies.runtimeStore.getState().setCanvasStatus('ready');
+        this.scheduleAssetGarbageCollection();
       } catch (error) {
         if (this.isActiveGeneration(generation)) {
           this.dependencies.runtimeStore.getState().setCanvasStatus('error');
@@ -328,10 +334,19 @@ export class Editor implements EditorApi {
     });
   }
 
+  flushMaintenance(): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      this.clearAssetGcTimer();
+      await this.dependencies.assetGateway.garbageCollect(this.protectedAssetIds());
+    });
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     this.generation += 1;
+    this.clearAssetGcTimer();
     this.unsubscribe();
     this.dependencies.renderer.dispose();
   }
@@ -430,6 +445,7 @@ export class Editor implements EditorApi {
     this.dependencies.renderer.select(selection);
     this.assertGeneration(generation);
     this.dependencies.onDocumentChange(design);
+    this.scheduleAssetGarbageCollection();
   }
 
   private async handleRendererEvent(event: EditorEvent, eventGeneration: number): Promise<void> {
@@ -466,6 +482,7 @@ export class Editor implements EditorApi {
         event.historyGroup,
       ));
       this.dependencies.onDocumentChange(this.design);
+      this.scheduleAssetGarbageCollection();
     });
   }
 
@@ -495,6 +512,31 @@ export class Editor implements EditorApi {
     const survivingSelection = previousSelection.filter((id) => this.findElement(id)).slice(0, 1);
     this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection);
     this.dependencies.renderer.select(survivingSelection);
+  }
+
+  private protectedAssetIds(): ReadonlySet<string> {
+    return new Set([
+      ...collectDesignAssetIds(this.design),
+      ...this.history.referencedAssetIds(),
+    ]);
+  }
+
+  private scheduleAssetGarbageCollection(): void {
+    if (this.disposed) return;
+    this.clearAssetGcTimer();
+    this.assetGcTimer = setTimeout(() => {
+      this.assetGcTimer = null;
+      void this.enqueue(async () => {
+        if (this.disposed) return;
+        await this.dependencies.assetGateway.garbageCollect(this.protectedAssetIds());
+      }).catch(() => undefined);
+    }, ASSET_GC_IDLE_MS);
+  }
+
+  private clearAssetGcTimer(): void {
+    if (!this.assetGcTimer) return;
+    clearTimeout(this.assetGcTimer);
+    this.assetGcTimer = null;
   }
 
   private async rethrowAfterUploadedAssetCompensation(
