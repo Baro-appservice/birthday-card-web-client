@@ -24,6 +24,7 @@ export {
   designElementSchema,
   designPageSchema,
   designSchema,
+  designV1Schema,
   imageElementSchema,
   shapeElementSchema,
   textElementSchema,
