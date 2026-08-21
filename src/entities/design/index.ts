@@ -32,6 +32,7 @@ export {
   designPageSchema,
   designSchema,
   designV1Schema,
+  designV2Schema,
   imageElementSchema,
   shapeElementSchema,
   textElementSchema,
