@@ -58,8 +58,9 @@ function applyCommonProperties(object: FabricObject, element: DesignElement): vo
 }
 
 function applyCoverImage(object: FabricImage, frameWidth: number, frameHeight: number): void {
-  const sourceWidth = positiveOr(object.getElement().naturalWidth || object.width, frameWidth);
-  const sourceHeight = positiveOr(object.getElement().naturalHeight || object.height, frameHeight);
+  const original = object.getOriginalSize();
+  const sourceWidth = positiveOr(original.width, frameWidth);
+  const sourceHeight = positiveOr(original.height, frameHeight);
   const frameAspect = frameWidth / frameHeight;
   const sourceAspect = sourceWidth / sourceHeight;
 
