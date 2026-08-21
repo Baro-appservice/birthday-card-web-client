@@ -23,6 +23,10 @@ export interface FabricTextTransformValues extends FabricTransformValues {
   fontSize?: number;
 }
 
+export interface ElementMappingOptions {
+  imageFailureMode?: 'placeholder' | 'throw';
+}
+
 const finiteOr = (value: number | undefined, fallback: number) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
@@ -103,9 +107,13 @@ function mapShape(element: Extract<DesignElement, { type: 'shape' }>): FabricObj
   if (element.shape === 'rectangle') {
     return new Rect({ ...commonOptions(element), width: element.width, height: element.height, fill: element.fill });
   }
-  return new Ellipse({
+  const ellipse = new Ellipse({
     ...commonOptions(element), rx: element.width / 2, ry: element.height / 2, fill: element.fill,
   });
+  if (element.shape === 'circle') {
+    ellipse.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
+  }
+  return ellipse;
 }
 
 function applyCoverImage(image: FabricImage, frameWidth: number, frameHeight: number): void {
@@ -140,13 +148,17 @@ function applyCoverImage(image: FabricImage, frameWidth: number, frameHeight: nu
 async function mapImage(
   element: Extract<DesignElement, { type: 'image' }>,
   assetGateway: Pick<AssetGateway, 'resolveUrl'>,
+  options: ElementMappingOptions,
 ): Promise<FabricObject> {
   try {
     const image = await FabricImage.fromURL(await assetGateway.resolveUrl(element.assetId));
     image.set(commonOptions(element));
     applyCoverImage(image, element.width, element.height);
     return image;
-  } catch {
+  } catch (error) {
+    if (options.imageFailureMode === 'throw') {
+      throw new Error(`이미지를 렌더링할 수 없습니다: ${element.assetId}`, { cause: error });
+    }
     return new Rect({
       ...commonOptions(element),
       width: element.width,
@@ -163,18 +175,20 @@ async function mapImage(
 export async function elementToFabricObject(
   element: DesignElement,
   assetGateway: Pick<AssetGateway, 'resolveUrl'>,
+  options: ElementMappingOptions = {},
 ): Promise<FabricObject> {
   const object = element.type === 'text'
     ? mapText(element)
     : element.type === 'shape'
       ? mapShape(element)
-      : await mapImage(element, assetGateway);
+      : await mapImage(element, assetGateway, options);
   return setElementId(object, element.id);
 }
 
 export async function pageToFabricObjects(
   page: DesignPage,
   assetGateway: Pick<AssetGateway, 'resolveUrl'>,
+  options: ElementMappingOptions = {},
 ): Promise<FabricObject[]> {
-  return Promise.all(page.elements.map((element) => elementToFabricObject(element, assetGateway)));
+  return Promise.all(page.elements.map((element) => elementToFabricObject(element, assetGateway, options)));
 }
