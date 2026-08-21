@@ -8,9 +8,11 @@ export {
 export {
   type BaseElement,
   type DesignElement,
+  type ElementTransformSnapshot,
   type ImageElement,
   type ShapeElement,
   type TextElement,
+  type TextTransformSnapshot,
   type TransformSnapshot,
 } from './model/element';
 export {
