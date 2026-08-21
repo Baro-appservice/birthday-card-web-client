@@ -2,6 +2,7 @@ import {
   clampTextFontSize,
   type DesignElement,
   type ElementTransformSnapshot,
+  type TransformSnapshot,
 } from '@/entities/design';
 import type { DesignStore } from '@/features/editor/model/design-store';
 
@@ -12,6 +13,9 @@ interface TransformChange {
   after: ElementTransformSnapshot;
 }
 
+type Corner = 'tl' | 'tr' | 'bl' | 'br';
+type Point = { x: number; y: number };
+
 function findElement(store: DesignStore, pageId: string, elementId: string): DesignElement {
   const page = store.getState().design.pages.find((candidate) => candidate.id === pageId);
   if (!page) throw new Error(`존재하지 않는 페이지입니다: ${pageId}`);
@@ -20,20 +24,103 @@ function findElement(store: DesignStore, pageId: string, elementId: string): Des
   return element;
 }
 
+function rotatedOffset(x: number, y: number, rotation: number): Point {
+  const radians = rotation * Math.PI / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return { x: x * cos - y * sin, y: x * sin + y * cos };
+}
+
+function corners(transform: TransformSnapshot): Record<Corner, Point> {
+  const right = rotatedOffset(transform.width, 0, transform.rotation);
+  const bottom = rotatedOffset(0, transform.height, transform.rotation);
+  return {
+    tl: { x: transform.x, y: transform.y },
+    tr: { x: transform.x + right.x, y: transform.y + right.y },
+    bl: { x: transform.x + bottom.x, y: transform.y + bottom.y },
+    br: {
+      x: transform.x + right.x + bottom.x,
+      y: transform.y + right.y + bottom.y,
+    },
+  };
+}
+
+function squaredDistance(left: Point, right: Point): number {
+  const dx = left.x - right.x;
+  const dy = left.y - right.y;
+  return dx * dx + dy * dy;
+}
+
+function inferFixedCorner(before: TransformSnapshot, after: TransformSnapshot): Corner {
+  const beforeCorners = corners(before);
+  const afterCorners = corners(after);
+  return (['tl', 'tr', 'bl', 'br'] as const).reduce((best, corner) => (
+    squaredDistance(beforeCorners[corner], afterCorners[corner])
+      < squaredDistance(beforeCorners[best], afterCorners[best])
+      ? corner
+      : best
+  ), 'tl');
+}
+
+function topLeftForFixedCorner(
+  fixedCorner: Corner,
+  fixedPoint: Point,
+  width: number,
+  height: number,
+  rotation: number,
+): Point {
+  const localOffset = fixedCorner === 'tl'
+    ? { x: 0, y: 0 }
+    : fixedCorner === 'tr'
+      ? { x: width, y: 0 }
+      : fixedCorner === 'bl'
+        ? { x: 0, y: height }
+        : { x: width, y: height };
+  const offset = rotatedOffset(localOffset.x, localOffset.y, rotation);
+  return { x: fixedPoint.x - offset.x, y: fixedPoint.y - offset.y };
+}
+
+function normalizeAnchoredSize(
+  before: TransformSnapshot,
+  after: TransformSnapshot,
+  width: number,
+  height: number,
+): { x: number; y: number; width: number; height: number } {
+  if (width === after.width && height === after.height) {
+    return { x: after.x, y: after.y, width, height };
+  }
+  const fixedCorner = inferFixedCorner(before, after);
+  const fixedPoint = corners(after)[fixedCorner];
+  const topLeft = topLeftForFixedCorner(
+    fixedCorner,
+    fixedPoint,
+    width,
+    height,
+    after.rotation,
+  );
+  return { x: topLeft.x, y: topLeft.y, width, height };
+}
+
 function applyTextTransform(
   element: Extract<DesignElement, { type: 'text' }>,
+  beforeTransform: ElementTransformSnapshot,
   transform: ElementTransformSnapshot,
   enforcePolicy: boolean,
 ): DesignElement {
   const rawFontSize = 'fontSize' in transform ? transform.fontSize : element.fontSize;
   const fontSize = enforcePolicy ? clampTextFontSize(rawFontSize) : rawFontSize;
   const scaleCorrection = enforcePolicy && rawFontSize > 0 ? fontSize / rawFontSize : 1;
+  const width = transform.width * scaleCorrection;
+  const visualHeight = transform.height * scaleCorrection;
+  const geometry = enforcePolicy
+    ? normalizeAnchoredSize(beforeTransform, transform, width, visualHeight)
+    : { x: transform.x, y: transform.y, width, height: visualHeight };
 
   return {
     ...element,
-    x: transform.x,
-    y: transform.y,
-    width: transform.width * scaleCorrection,
+    x: geometry.x,
+    y: geometry.y,
+    width: geometry.width,
     // v1 compatibility field only. Text height is content-derived and must not
     // be overwritten by Fabric scale/measurement values.
     height: element.height,
@@ -42,13 +129,45 @@ function applyTextTransform(
   };
 }
 
+function applyShapeTransform(
+  element: Extract<DesignElement, { type: 'shape' }>,
+  beforeTransform: ElementTransformSnapshot,
+  transform: ElementTransformSnapshot,
+): DesignElement {
+  if (element.shape !== 'circle') {
+    return {
+      ...element,
+      x: transform.x,
+      y: transform.y,
+      width: transform.width,
+      height: transform.height,
+      rotation: transform.rotation,
+    };
+  }
+
+  const size = Math.max(transform.width, transform.height);
+  const geometry = normalizeAnchoredSize(beforeTransform, transform, size, size);
+  return {
+    ...element,
+    x: geometry.x,
+    y: geometry.y,
+    width: size,
+    height: size,
+    rotation: transform.rotation,
+  };
+}
+
 function applyTransform(
   element: DesignElement,
+  beforeTransform: ElementTransformSnapshot,
   transform: ElementTransformSnapshot,
   enforceTextPolicy: boolean,
 ): DesignElement {
   if (element.type === 'text') {
-    return applyTextTransform(element, transform, enforceTextPolicy);
+    return applyTextTransform(element, beforeTransform, transform, enforceTextPolicy);
+  }
+  if (element.type === 'shape') {
+    return applyShapeTransform(element, beforeTransform, transform);
   }
 
   return {
@@ -72,8 +191,8 @@ export class TransformElementCommand implements EditorCommand {
     change: TransformChange,
   ) {
     const element = findElement(store, pageId, elementId);
-    this.before = applyTransform(element, change.before, false);
-    this.after = applyTransform(element, change.after, true);
+    this.before = applyTransform(element, change.before, change.before, false);
+    this.after = applyTransform(element, change.before, change.after, true);
   }
 
   execute(): void {
