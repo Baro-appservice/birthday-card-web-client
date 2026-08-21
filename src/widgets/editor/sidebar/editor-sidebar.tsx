@@ -29,9 +29,9 @@ export function EditorSidebar() {
   const setActivePanel = useEditorUiStore((state) => state.setActivePanel);
   const setError = useEditorUiStore((state) => state.setError);
   const background = useDesignStore((state) => state.design.pages[0]!.background);
-  const changeBackground = async (color: string) => {
+  const changeBackground = async (color: string, historyGroup: string) => {
     try {
-      await editor.setBackground(color);
+      await editor.setBackground(color, { historyGroup });
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : '카드 배경색을 바꾸지 못했습니다. 다시 시도해 주세요.');
@@ -62,7 +62,7 @@ export function EditorSidebar() {
           <ActivePanel panel={activePanel} />
         </div>
         <div className="mt-7 border-t border-[var(--border)] pt-5">
-          <ColorInput label="카드 배경" value={background} onChange={(color) => void changeBackground(color)} />
+          <ColorInput label="카드 배경" value={background} onChange={(color, historyGroup) => void changeBackground(color, historyGroup)} />
         </div>
       </div>
     </aside>
