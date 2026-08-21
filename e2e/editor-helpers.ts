@@ -10,6 +10,7 @@ export interface StoredElement {
   width: number;
   height: number;
   text?: string;
+  fontSize?: number;
   assetId?: string;
 }
 
