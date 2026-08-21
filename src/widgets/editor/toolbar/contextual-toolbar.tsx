@@ -40,6 +40,11 @@ function TextContentInput({
   const historyGroupRef = useRef<string | null>(null);
   const focusedRef = useRef(false);
   const composingRef = useRef(false);
+  const onCommitRef = useRef(onCommit);
+
+  useEffect(() => {
+    onCommitRef.current = onCommit;
+  }, [onCommit]);
 
   const replaceDraft = useCallback((value: string) => {
     draftRef.current = value;
@@ -94,8 +99,18 @@ function TextContentInput({
   }, [replaceDraft, selected.id, selected.text]);
 
   useEffect(() => () => {
-    if (timerRef.current !== null) clearTimeout(timerRef.current);
-  }, []);
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const value = draftRef.current;
+    if (value === submittedRef.current) return;
+    const historyGroup = historyGroupRef.current ?? createTextHistoryGroup(selected.id);
+    // Enqueue before the component disappears. The callback targets the captured
+    // page/element rather than whichever element happens to be selected now.
+    submittedRef.current = value;
+    void onCommitRef.current(value, historyGroup).catch(() => undefined);
+  }, [selected.id]);
 
   return (
     <textarea
@@ -206,12 +221,23 @@ function SelectionControls({ property }: { property: boolean }) {
   );
 }
 
-function TextControls({ selected, property }: { selected: Extract<DesignElement, { type: 'text' }>; property: boolean }) {
+function TextControls({
+  selected,
+  property,
+  pageId,
+}: {
+  selected: Extract<DesignElement, { type: 'text' }>;
+  property: boolean;
+  pageId: string;
+}) {
   const editor = useEditor();
   const setError = useEditorUiStore((state) => state.setError);
+  const reportError = (error: unknown, fallback: string) => {
+    setError(error instanceof Error ? error.message : fallback);
+  };
   const update = async (
     changes: Partial<Pick<TextElement,
-      'text' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>,
+      'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>,
     historyGroup?: string,
     propagateError = false,
   ) => {
@@ -224,8 +250,17 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
       }
       setError(null);
     } catch (error) {
-      setError(error instanceof Error ? error.message : '텍스트 서식을 바꾸지 못했습니다. 다시 시도해 주세요.');
+      reportError(error, '텍스트 서식을 바꾸지 못했습니다. 다시 시도해 주세요.');
       if (propagateError) throw error;
+    }
+  };
+  const commitText = async (text: string, historyGroup: string) => {
+    try {
+      await editor.updateTextElement(pageId, selected.id, text, { historyGroup });
+      setError(null);
+    } catch (error) {
+      reportError(error, '텍스트 내용을 바꾸지 못했습니다. 다시 시도해 주세요.');
+      throw error;
     }
   };
   const displayedFontFamily = approvedFontFamilies.includes(
@@ -238,7 +273,7 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
         key={selected.id}
         selected={selected}
         property={property}
-        onCommit={(text, historyGroup) => update({ text }, historyGroup, true)}
+        onCommit={commitText}
       />
       <label className="sr-only" htmlFor="font-family">글꼴</label>
       <select id="font-family" value={displayedFontFamily} onChange={(event) => void update({ fontFamily: event.target.value })} className={`${property ? propertyTouchTargetClass : 'h-9'} rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}>
@@ -309,12 +344,13 @@ function ShapeControls({ selected, property }: { selected: Extract<DesignElement
 
 export function ContextualToolbar({ variant = 'desktop' }: { variant?: 'desktop' | 'property' }) {
   const selectedElementIds = useEditorRuntimeStore((state) => state.selectedElementIds);
-  const page = useDesignStore((state) => state.design.pages[0]);
+  const activePageId = useEditorRuntimeStore((state) => state.activePageId);
+  const page = useDesignStore((state) => state.design.pages.find((candidate) => candidate.id === activePageId));
   const selected = selectedElementIds.length === 1 ? page?.elements.find((element) => element.id === selectedElementIds[0]) : undefined;
   if (!selected) return <div className="min-h-12" aria-label="선택 도구" />;
   return (
     <section aria-label="선택 도구" className="flex min-h-12 flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-[var(--shadow-soft)]">
-      {selected.type === 'text' && <TextControls selected={selected} property={variant === 'property'} />}
+      {selected.type === 'text' && <TextControls selected={selected} property={variant === 'property'} pageId={activePageId} />}
       {selected.type === 'image' && <ImageControls property={variant === 'property'} />}
       {selected.type === 'shape' && <ShapeControls selected={selected} property={variant === 'property'} />}
       <SelectionControls property={variant === 'property'} />
