@@ -24,6 +24,13 @@ export {
   textElementSchema,
 } from './model/design-schema';
 export {
+  TEXT_FONT_SIZE_MAX,
+  TEXT_FONT_SIZE_MIN,
+  assertTextFontSize,
+  clampTextFontSize,
+  isValidTextFontSize,
+} from './model/text-policy';
+export {
   addElement,
   moveElement,
   removeElement,
