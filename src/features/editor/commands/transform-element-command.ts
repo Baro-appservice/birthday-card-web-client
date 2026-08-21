@@ -13,7 +13,7 @@ interface TransformChange {
   after: ElementTransformSnapshot;
 }
 
-type Corner = 'tl' | 'tr' | 'bl' | 'br';
+type Anchor = 'tl' | 'tr' | 'bl' | 'br' | 'center';
 type Point = { x: number; y: number };
 
 function findElement(store: DesignStore, pageId: string, elementId: string): DesignElement {
@@ -31,7 +31,7 @@ function rotatedOffset(x: number, y: number, rotation: number): Point {
   return { x: x * cos - y * sin, y: x * sin + y * cos };
 }
 
-function corners(transform: TransformSnapshot): Record<Corner, Point> {
+function anchors(transform: TransformSnapshot): Record<Anchor, Point> {
   const right = rotatedOffset(transform.width, 0, transform.rotation);
   const bottom = rotatedOffset(0, transform.height, transform.rotation);
   return {
@@ -42,6 +42,10 @@ function corners(transform: TransformSnapshot): Record<Corner, Point> {
       x: transform.x + right.x + bottom.x,
       y: transform.y + right.y + bottom.y,
     },
+    center: {
+      x: transform.x + (right.x + bottom.x) / 2,
+      y: transform.y + (right.y + bottom.y) / 2,
+    },
   };
 }
 
@@ -51,31 +55,38 @@ function squaredDistance(left: Point, right: Point): number {
   return dx * dx + dy * dy;
 }
 
-function inferFixedCorner(before: TransformSnapshot, after: TransformSnapshot): Corner {
-  const beforeCorners = corners(before);
-  const afterCorners = corners(after);
-  return (['tl', 'tr', 'bl', 'br'] as const).reduce((best, corner) => (
-    squaredDistance(beforeCorners[corner], afterCorners[corner])
-      < squaredDistance(beforeCorners[best], afterCorners[best])
-      ? corner
-      : best
-  ), 'tl');
+function inferFixedAnchor(before: TransformSnapshot, after: TransformSnapshot): Anchor {
+  const beforeAnchors = anchors(before);
+  const afterAnchors = anchors(after);
+  const candidates: readonly Anchor[] = ['tl', 'tr', 'bl', 'br', 'center'];
+  let best: Anchor = 'tl';
+  let bestDistance = squaredDistance(beforeAnchors.tl, afterAnchors.tl);
+  for (const candidate of candidates.slice(1)) {
+    const distance = squaredDistance(beforeAnchors[candidate], afterAnchors[candidate]);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }
 
-function topLeftForFixedCorner(
-  fixedCorner: Corner,
+function topLeftForFixedAnchor(
+  fixedAnchor: Anchor,
   fixedPoint: Point,
   width: number,
   height: number,
   rotation: number,
 ): Point {
-  const localOffset = fixedCorner === 'tl'
+  const localOffset = fixedAnchor === 'tl'
     ? { x: 0, y: 0 }
-    : fixedCorner === 'tr'
+    : fixedAnchor === 'tr'
       ? { x: width, y: 0 }
-      : fixedCorner === 'bl'
+      : fixedAnchor === 'bl'
         ? { x: 0, y: height }
-        : { x: width, y: height };
+        : fixedAnchor === 'br'
+          ? { x: width, y: height }
+          : { x: width / 2, y: height / 2 };
   const offset = rotatedOffset(localOffset.x, localOffset.y, rotation);
   return { x: fixedPoint.x - offset.x, y: fixedPoint.y - offset.y };
 }
@@ -89,10 +100,10 @@ function normalizeAnchoredSize(
   if (width === after.width && height === after.height) {
     return { x: after.x, y: after.y, width, height };
   }
-  const fixedCorner = inferFixedCorner(before, after);
-  const fixedPoint = corners(after)[fixedCorner];
-  const topLeft = topLeftForFixedCorner(
-    fixedCorner,
+  const fixedAnchor = inferFixedAnchor(before, after);
+  const fixedPoint = anchors(after)[fixedAnchor];
+  const topLeft = topLeftForFixedAnchor(
+    fixedAnchor,
     fixedPoint,
     width,
     height,
