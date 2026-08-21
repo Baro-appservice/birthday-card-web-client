@@ -1,7 +1,8 @@
 .frame {
-  inline-size: min(100cqi, 720px, 80cqb);
-  max-inline-size: 100%;
-  max-block-size: 100%;
+  position: relative;
+  z-index: 1;
+  inline-size: 100%;
+  block-size: 100%;
   aspect-ratio: 4 / 5;
   overflow: hidden;
   border-radius: 20px;
@@ -12,6 +13,56 @@
 .viewport {
   container-type: size;
   min-block-size: 0;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+
+.scrollContent {
+  box-sizing: border-box;
+  display: grid;
+  inline-size: max-content;
+  min-inline-size: 100%;
+  min-block-size: 100%;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.zoomStage {
+  --canvas-base-inline-size: min(
+    calc(100cqi - 2.5rem),
+    720px,
+    calc((100cqb - 2.5rem) * 0.8)
+  );
+
+  position: relative;
+  inline-size: calc(var(--canvas-base-inline-size) * var(--editor-zoom));
+  block-size: calc(var(--canvas-base-inline-size) * 1.25 * var(--editor-zoom));
+  overflow: hidden;
+}
+
+.zoomSurface {
+  position: absolute;
+  inset: 0 auto auto 0;
+  inline-size: var(--canvas-base-inline-size);
+  block-size: calc(var(--canvas-base-inline-size) * 1.25);
+  transform: scale(var(--editor-zoom));
+  transform-origin: left top;
+  transition: transform 160ms ease;
+}
+
+.paperShadow {
+  position: absolute;
+  inset: 1rem -0.75rem -0.75rem 1rem;
+  border-radius: 1.8rem;
+  background: var(--brand-soft);
+  box-shadow: var(--paper-shadow);
+  transform: rotate(-2deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zoomSurface {
+    transition: none;
+  }
 }
 
 .canvas {

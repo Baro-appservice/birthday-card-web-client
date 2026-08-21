@@ -1,8 +1,10 @@
 import { act, render, renderHook, waitFor } from '@testing-library/react';
-import { StrictMode } from 'react';
+import { StrictMode, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createSampleDesign } from '@/entities/design';
+import { EditorContext } from '@/features/editor/context/editor-context';
+import { SaveCoordinator } from '@/features/editor/persistence/save-coordinator';
 
 import { createEditorTestKit } from '../testing/editor-test-kit';
 import { EditorCanvas } from '@/widgets/editor/canvas/editor-canvas';
@@ -82,6 +84,41 @@ describe('useEditorSession', () => {
 
     expect(result.current.status).toBe('ready');
     expect(kit.uiStore.getState().recoveryNotice).toBeNull();
+  });
+
+  it('복구 저장 실패 후에도 in-memory Design으로 준비되고 표시된 저장 오류를 retry해 영속화한다', async () => {
+    const backup = createSampleDesign();
+    backup.pages[0].background = '#decafe';
+    const kit = createEditorTestKit({
+      loadResult: { status: 'recoverable', reason: 'corrupt', backup },
+    });
+    vi.mocked(kit.repository.save)
+      .mockRejectedValueOnce(new Error('복구 문서를 저장하지 못했습니다.'))
+      .mockResolvedValueOnce(undefined);
+    const saveCoordinator = new SaveCoordinator('local-demo', kit.repository, kit.uiStore);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EditorContext.Provider value={{ ...kit, saveCoordinator }}>
+        {children}
+      </EditorContext.Provider>
+    );
+    const { result } = renderHook(() => useEditorSession('local-demo'), { wrapper });
+    await waitFor(() => expect(result.current.status).toBe('recoverable'));
+
+    await act(async () => { await result.current.recover('backup'); });
+
+    expect(result.current.status).toBe('ready');
+    expect(kit.designStore.getState().design.pages[0].background).toBe('#decafe');
+    expect(kit.uiStore.getState()).toMatchObject({
+      recoveryNotice: null,
+      saveStatus: 'error',
+      saveError: '복구 문서를 저장하지 못했습니다.',
+    });
+
+    await act(async () => { await saveCoordinator.retry(); });
+
+    expect(kit.repository.save).toHaveBeenCalledTimes(2);
+    expect(kit.uiStore.getState()).toMatchObject({ saveStatus: 'saved', saveError: null });
+    saveCoordinator.dispose();
   });
 
   it('StrictMode 재실행에서도 같은 Editor canvas를 한 번만 mount한다', async () => {

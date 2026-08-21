@@ -71,6 +71,7 @@ export function createEditorTestKit(options: {
     uiStore,
     repository,
     saveCoordinator,
+    retryAssembly: vi.fn(),
   };
   const wrapper = ({ children }: { children: ReactNode }) => (
     <EditorContext.Provider value={value}>{children}</EditorContext.Provider>

@@ -14,6 +14,7 @@ export interface EditorContextValue {
   uiStore: EditorUiStore;
   repository: DesignRepository;
   saveCoordinator: Pick<SaveCoordinator, 'schedule' | 'flush' | 'retry' | 'dispose'>;
+  retryAssembly(): void;
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

@@ -1,10 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
 import { EditorProvider, type EditorAssemblyFactory } from '@/features/editor/context/editor-provider';
 import { useKeyboardShortcuts } from '@/features/editor/hooks/use-keyboard-shortcuts';
-import { useEditor, useEditorRuntimeStore, useEditorUiStore } from '@/features/editor/hooks/use-editor';
+import {
+  useEditor,
+  useEditorAssemblyRetry,
+  useEditorRuntimeStore,
+  useEditorUiStore,
+} from '@/features/editor/hooks/use-editor';
 import { useEditorSession } from '@/features/editor/hooks/use-editor-session';
 import { useMediaQuery } from '@/shared/hooks/use-media-query';
 import { IconButton } from '@/shared/ui/icon-button';
@@ -31,7 +36,17 @@ export function EditorScreen({
   assemblyFactory?: EditorAssemblyFactory;
 }) {
   return (
-    <EditorProvider cardId={cardId} assemblyFactory={assemblyFactory}>
+    <EditorProvider
+      cardId={cardId}
+      assemblyFactory={assemblyFactory}
+      renderInitializationError={({ message, retry }) => (
+        <EditorErrorState
+          title="편집기를 시작하지 못했습니다."
+          description={message}
+          onAction={retry}
+        />
+      )}
+    >
       <EditorSessionScreen cardId={cardId} />
     </EditorProvider>
   );
@@ -39,6 +54,9 @@ export function EditorScreen({
 
 function EditorSessionScreen({ cardId }: { cardId: string }) {
   const session = useEditorSession(cardId);
+  const retryAssembly = useEditorAssemblyRetry();
+  const canvasStatus = useEditorRuntimeStore((state) => state.canvasStatus);
+  const operationError = useEditorUiStore((state) => state.error);
 
   if (session.status === 'loading') {
     return <main className="grid min-h-dvh place-items-center bg-[var(--workspace)] text-[var(--ink)]">카드를 불러오고 있습니다.</main>;
@@ -48,12 +66,21 @@ function EditorSessionScreen({ cardId }: { cardId: string }) {
       <EditorErrorState
         title="카드를 불러오지 못했습니다."
         description="브라우저 저장소를 확인한 뒤 다시 시도해 주세요."
-        onAction={() => window.location.reload()}
+        onAction={retryAssembly}
       />
     );
   }
   if (session.status === 'recoverable') {
     return <RecoverableEditorSession onRecover={session.recover} />;
+  }
+  if (canvasStatus === 'error') {
+    return (
+      <EditorErrorState
+        title="캔버스를 시작하지 못했습니다."
+        description={operationError ?? '캔버스를 준비하지 못했습니다. 브라우저 상태를 확인한 뒤 다시 시도해 주세요.'}
+        onAction={retryAssembly}
+      />
+    );
   }
 
   return <EditorResponsiveLayout cardId={cardId} />;
@@ -118,10 +145,22 @@ function EditorWorkspace({ showContextualToolbar }: { showContextualToolbar: boo
     <section data-testid="editor-workspace" aria-label="카드 편집 영역" className="flex min-h-0 min-w-0 flex-col overflow-hidden p-3 sm:p-5 lg:p-8">
       <div className="mx-auto flex h-full min-h-0 w-full min-w-0 flex-col items-center gap-3 sm:gap-4">
         <div className="w-full max-w-[720px]">{showContextualToolbar ? <ContextualToolbar /> : <div className="min-h-0" />}</div>
-        <div data-testid="editor-canvas-viewport" className={`relative flex min-h-0 w-full flex-1 justify-center overflow-hidden pb-3 ${canvasStyles.viewport}`}>
-          <div className="absolute inset-y-5 w-[min(88%,650px)] translate-x-5 -rotate-2 rounded-[1.8rem] bg-[var(--brand-soft)] shadow-[var(--paper-shadow)]" aria-hidden="true" />
-          <div data-testid="editor-canvas" className="relative w-full origin-top transition-transform motion-reduce:transition-none" style={{ transform: `scale(${zoom})`, marginBottom: `${(zoom - 1) * 100}%` }}>
-            <EditorCanvas />
+        <div
+          data-testid="editor-canvas-viewport"
+          data-scrollable-zoom="true"
+          className={`relative min-h-0 w-full flex-1 overflow-auto ${canvasStyles.viewport}`}
+        >
+          <div data-testid="editor-canvas-scroll-content" className={canvasStyles.scrollContent}>
+            <div
+              data-testid="editor-canvas-zoom-stage"
+              className={canvasStyles.zoomStage}
+              style={{ '--editor-zoom': String(zoom) } as CSSProperties}
+            >
+              <div data-testid="editor-canvas" className={canvasStyles.zoomSurface}>
+                <div className={canvasStyles.paperShadow} aria-hidden="true" />
+                <EditorCanvas />
+              </div>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 py-1 shadow-[var(--shadow-soft)]" aria-label="확대 축소">

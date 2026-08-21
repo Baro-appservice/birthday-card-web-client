@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { createSampleDesign } from '@/entities/design';
 import { Editor } from '@/features/editor/core/editor';
@@ -18,7 +18,7 @@ import { createEditorUiStore } from '@/features/editor/model/editor-ui-store';
 import { EditorContext, type EditorContextValue } from './editor-context';
 
 export interface EditorAssembly {
-  value: EditorContextValue;
+  value: Omit<EditorContextValue, 'retryAssembly'>;
   disposeAssetGateway(): void;
   closeDatabase(): void;
 }
@@ -92,14 +92,22 @@ export function EditorProvider({
   cardId,
   children,
   assemblyFactory = createBrowserEditorAssembly,
+  renderInitializationError,
 }: {
   cardId: string;
   children: ReactNode;
   assemblyFactory?: EditorAssemblyFactory;
+  renderInitializationError?(options: { message: string; retry(): void }): ReactNode;
 }) {
   const releaseRef = useRef<Promise<void>>(Promise.resolve());
   const [providerValue, setProviderValue] = useState<ProviderValue | null>(null);
   const [initializationError, setInitializationError] = useState<InitializationError | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const retryAssembly = useCallback(() => {
+    setProviderValue(null);
+    setInitializationError(null);
+    setAttempt((current) => current + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,7 +122,10 @@ export function EditorProvider({
           return;
         }
         ownedAssembly = assembly;
-        setProviderValue({ cardId, value: assembly.value });
+        setProviderValue({
+          cardId,
+          value: { ...assembly.value, retryAssembly },
+        });
       })
       .catch(() => {
         if (!cancelled) {
@@ -126,10 +137,21 @@ export function EditorProvider({
       cancelled = true;
       releaseRef.current = ownedAssembly ? disposeEditorAssembly(ownedAssembly) : setup;
     };
-  }, [assemblyFactory, cardId]);
+  }, [assemblyFactory, attempt, cardId, retryAssembly]);
 
   if (initializationError?.cardId === cardId) {
-    return <p role="alert">{initializationError.message}</p>;
+    if (renderInitializationError) {
+      return renderInitializationError({
+        message: initializationError.message,
+        retry: retryAssembly,
+      });
+    }
+    return (
+      <section role="alert">
+        <p>{initializationError.message}</p>
+        <button type="button" autoFocus onClick={retryAssembly}>다시 시도</button>
+      </section>
+    );
   }
   if (providerValue?.cardId !== cardId) return <p role="status">편집기를 준비하고 있습니다.</p>;
 

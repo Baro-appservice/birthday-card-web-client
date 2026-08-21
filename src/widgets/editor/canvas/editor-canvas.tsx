@@ -26,7 +26,7 @@ export function EditorCanvas() {
   }, [editor, setCanvasStatus, setError]);
 
   return (
-    <div className={styles.frame} data-testid="editor-canvas-frame" data-layout-contract="4:5-fit-container">
+    <div className={styles.frame} data-testid="editor-canvas-frame" data-layout-contract="4:5-scrollable-zoom">
       <canvas ref={canvasRef} className={styles.canvas} aria-label="생일 카드 편집 캔버스" />
     </div>
   );

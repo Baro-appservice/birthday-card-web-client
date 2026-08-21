@@ -1,4 +1,5 @@
 import { render, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +15,7 @@ import { createDesignStore } from '@/features/editor/model/design-store';
 import { createEditorRuntimeStore } from '@/features/editor/model/editor-runtime-store';
 import { createEditorUiStore } from '@/features/editor/model/editor-ui-store';
 import { EditorCanvas } from '@/widgets/editor/canvas/editor-canvas';
+import { EditorScreen } from '@/widgets/editor/editor-screen';
 
 import {
   EditorProvider,
@@ -32,6 +34,7 @@ interface FailureOptions {
   saveDisposeThrows?: boolean;
   assetDisposeThrows?: boolean;
   mountThrows?: boolean;
+  renderRejects?: boolean;
 }
 
 function createAssemblyRecord(
@@ -43,14 +46,16 @@ function createAssemblyRecord(
   const runtimeStore = createEditorRuntimeStore();
   const uiStore = createEditorUiStore();
   const repository: DesignRepository = {
-    load: vi.fn(),
+    load: vi.fn().mockResolvedValue({ status: 'loaded', design: createSampleDesign() }),
     save: vi.fn(),
   };
   const renderer: EditorRenderer = {
     mount: vi.fn(() => {
       if (options.mountThrows) throw new Error(`${label} mount failed`);
     }),
-    render: vi.fn().mockResolvedValue(undefined),
+    render: options.renderRejects
+      ? vi.fn().mockRejectedValue(new Error(`${label} render failed`))
+      : vi.fn().mockResolvedValue(undefined),
     select: vi.fn(),
     subscribe: vi.fn().mockReturnValue(() => undefined),
     dispose: vi.fn(() => { events.push(`${label}:renderer.dispose`); }),
@@ -251,6 +256,91 @@ describe('EditorProvider', () => {
     await waitFor(() => expect(record.runtimeStore.getState().canvasStatus).toBe('error'));
     expect(record.assembly.value.uiStore.getState().error).toBe('mount-error mount failed');
     view.unmount();
+  });
+
+  it('factory 실패 뒤 포커스된 다시 시도로 새 assembly와 Canvas를 만든다', async () => {
+    const user = userEvent.setup();
+    const events: string[] = [];
+    const recovered = createAssemblyRecord('factory-recovered', events);
+    const factory: EditorAssemblyFactory = vi.fn()
+      .mockRejectedValueOnce(new Error('db failed'))
+      .mockResolvedValueOnce(recovered.assembly);
+    render(<EditorScreen cardId="factory-retry" assemblyFactory={factory} />);
+
+    const retry = await waitFor(() => {
+      const button = document.querySelector<HTMLButtonElement>('button');
+      expect(button).toHaveTextContent('다시 시도');
+      return button!;
+    });
+    expect(retry).toHaveFocus();
+    await user.click(retry);
+
+    await waitFor(() => expect(recovered.renderer.mount).toHaveBeenCalledOnce());
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['mount', 'render'] as const)(
+    'Canvas %s 실패 뒤 이전 assembly를 정리하고 새 Editor와 Canvas로 재시도한다',
+    async (failurePoint) => {
+      const user = userEvent.setup();
+      const events: string[] = [];
+      const failed = createAssemblyRecord('canvas-failed', events, {
+        mountThrows: failurePoint === 'mount',
+        renderRejects: failurePoint === 'render',
+      });
+      const recovered = createAssemblyRecord('canvas-recovered', events);
+      const factory: EditorAssemblyFactory = vi.fn()
+        .mockResolvedValueOnce(failed.assembly)
+        .mockResolvedValueOnce(recovered.assembly);
+      render(<EditorScreen cardId={`canvas-${failurePoint}`} assemblyFactory={factory} />);
+
+      const retry = await waitFor(() => {
+        const button = [...document.querySelectorAll('button')]
+          .find((candidate) => candidate.textContent === '다시 시도');
+        expect(button).toBeDefined();
+        return button as HTMLButtonElement;
+      });
+      expect(retry).toHaveFocus();
+      await user.click(retry);
+
+      await waitFor(() => expect(recovered.renderer.mount).toHaveBeenCalledOnce());
+      expect(failed.renderer.dispose).toHaveBeenCalledOnce();
+      expect(factory).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('재시도 cleanup 일부가 실패해도 남은 자원을 정리하고 새 assembly를 게시한다', async () => {
+    const user = userEvent.setup();
+    const events: string[] = [];
+    const failed = createAssemblyRecord('cleanup-failed', events, {
+      mountThrows: true,
+      flushRejects: true,
+      saveDisposeThrows: true,
+      assetDisposeThrows: true,
+    });
+    const recovered = createAssemblyRecord('cleanup-recovered', events);
+    const factory: EditorAssemblyFactory = vi.fn()
+      .mockResolvedValueOnce(failed.assembly)
+      .mockResolvedValueOnce(recovered.assembly);
+    render(<EditorScreen cardId="cleanup-retry" assemblyFactory={factory} />);
+
+    const retry = await waitFor(() => {
+      const button = [...document.querySelectorAll('button')]
+        .find((candidate) => candidate.textContent === '다시 시도');
+      expect(button).toBeDefined();
+      return button as HTMLButtonElement;
+    });
+    expect(retry).toHaveFocus();
+    await user.click(retry);
+
+    await waitFor(() => expect(recovered.renderer.mount).toHaveBeenCalledOnce());
+    expect(events).toEqual([
+      'cleanup-failed:flush',
+      'cleanup-failed:saveCoordinator.dispose',
+      'cleanup-failed:renderer.dispose',
+      'cleanup-failed:assetGateway.dispose',
+      'cleanup-failed:db.close',
+    ]);
   });
 
   it('같은 Provider 안에서 canvas가 다시 mount되면 Editor 거부 원인을 runtime과 UI에 남긴다', async () => {

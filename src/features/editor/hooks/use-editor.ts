@@ -21,6 +21,10 @@ export function useEditorSaveCoordinator() {
   return useEditorContext().saveCoordinator;
 }
 
+export function useEditorAssemblyRetry() {
+  return useEditorContext().retryAssembly;
+}
+
 export function useDesignStore<T>(selector: (state: DesignState) => T): T {
   return useStore(useEditorContext().designStore, selector);
 }

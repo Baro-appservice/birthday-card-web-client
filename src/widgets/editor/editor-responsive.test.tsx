@@ -114,7 +114,7 @@ describe('EditorScreen responsive composition', () => {
     const drawerTrigger = await screen.findByRole('button', { name: '편집 도구 열기' });
     await user.click(drawerTrigger);
     expect(await screen.findByRole('navigation', { name: '태블릿 편집 도구' })).toBeVisible();
-    expect(screen.getByRole('tab', { name: '텍스트' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: '텍스트' })).toHaveFocus();
 
     fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('navigation', { name: '태블릿 편집 도구' })).not.toBeInTheDocument());
@@ -148,7 +148,7 @@ describe('EditorScreen responsive composition', () => {
     const drawerTrigger = await screen.findByRole('button', { name: '편집 도구 열기' });
     await user.click(drawerTrigger);
     const drawer = await screen.findByRole('navigation', { name: '태블릿 편집 도구' });
-    const sheetTrigger = screen.getByRole('tab', { name: '텍스트' });
+    const sheetTrigger = screen.getByRole('button', { name: '텍스트' });
     sheetTrigger.focus();
     act(() => kit.runtimeStore.getState().setSelectedElementIds(['title']));
     const sheet = await screen.findByRole('dialog', { name: '선택한 요소 편집' });
@@ -190,6 +190,32 @@ describe('EditorScreen responsive composition', () => {
     await screen.findByRole('button', { name: '편집 도구 열기' });
     expect(screen.getByTestId('editor-workspace')).toHaveClass('min-h-0', 'overflow-hidden');
     expect(screen.getByTestId('editor-canvas-viewport')).toHaveClass('min-h-0', 'flex-1');
-    expect(screen.getByTestId('editor-canvas-frame')).toHaveAttribute('data-layout-contract', '4:5-fit-container');
+    expect(screen.getByTestId('editor-canvas-viewport')).toHaveAttribute('data-scrollable-zoom', 'true');
+    expect(screen.getByTestId('editor-canvas-frame')).toHaveAttribute('data-layout-contract', '4:5-scrollable-zoom');
+    expect(screen.getByTestId('editor-canvas-scroll-content')).toBeInTheDocument();
+    expect(screen.getByTestId('editor-canvas-zoom-stage')).toHaveStyle({ '--editor-zoom': '1' });
+  });
+
+  it('25%에서 200%까지 layout stage만 바꾸고 같은 Canvas를 유지한다', async () => {
+    installMatchMedia(1280);
+    const user = userEvent.setup();
+    const kit = createEditorTestKit();
+    render(<EditorScreen cardId="local-demo" assemblyFactory={assemblyFactoryFor(kit)} />);
+    const canvas = await screen.findByLabelText('생일 카드 편집 캔버스');
+    await waitFor(() => expect(kit.renderer.mount).toHaveBeenCalledOnce());
+
+    for (let index = 0; index < 4; index += 1) {
+      await user.click(screen.getByRole('button', { name: '확대' }));
+    }
+    expect(screen.getByText('200%')).toBeVisible();
+    expect(screen.getByTestId('editor-canvas-zoom-stage')).toHaveStyle({ '--editor-zoom': '2' });
+
+    for (let index = 0; index < 7; index += 1) {
+      await user.click(screen.getByRole('button', { name: '축소' }));
+    }
+    expect(screen.getByText('25%')).toBeVisible();
+    expect(screen.getByTestId('editor-canvas-zoom-stage')).toHaveStyle({ '--editor-zoom': '0.25' });
+    expect(screen.getByLabelText('생일 카드 편집 캔버스')).toBe(canvas);
+    expect(kit.renderer.mount).toHaveBeenCalledOnce();
   });
 });

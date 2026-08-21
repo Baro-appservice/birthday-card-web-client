@@ -18,7 +18,7 @@ export function EditorErrorState({
       <section role="alert" className="max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[var(--shadow-soft)]">
         <h1 className="font-[ui-rounded,Arial_Rounded_MT_Bold,system-ui] text-xl">{title}</h1>
         <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">{description}</p>
-        <Button className="mt-5" variant="primary" onClick={onAction}>{actionLabel}</Button>
+        <Button className="mt-5" variant="primary" autoFocus onClick={onAction}>{actionLabel}</Button>
       </section>
     </main>
   );
