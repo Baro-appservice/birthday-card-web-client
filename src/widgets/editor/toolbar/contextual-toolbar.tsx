@@ -56,7 +56,9 @@ function TextContentInput({
     submittedRef.current = selected.text;
   }, [selected.id, selected.text]);
 
-  useEffect(() => () => cancelScheduledCommit(), []);
+  useEffect(() => () => {
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+  }, []);
 
   return (
     <input
