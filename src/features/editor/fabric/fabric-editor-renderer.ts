@@ -12,10 +12,6 @@ function dedupe(ids: string[]): string[] {
   return [...new Set(ids)];
 }
 
-function sameIds(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((id, index) => id === right[index]);
-}
-
 function positiveOr(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) > 0
     ? Math.abs(value)
@@ -192,9 +188,11 @@ export class FabricEditorRenderer implements EditorRenderer {
       .map((elementId) => this.objectsById.get(elementId)
         ?? canvas.getObjects().find((candidate) => getElementId(candidate) === elementId))
       .find((candidate): candidate is FabricObject => candidate !== undefined);
-    const nextSelection = object ? [getElementId(object)].filter((id): id is string => Boolean(id)) : [];
-    const currentSelection = canvas.getActiveObjects().map(getElementId).filter((id): id is string => Boolean(id));
-    if (sameIds(currentSelection, nextSelection)) return;
+    const currentSelection = canvas.getActiveObjects();
+    if ((!object && currentSelection.length === 0)
+      || (object && currentSelection.length === 1 && currentSelection[0] === object)) {
+      return;
+    }
 
     canvas.discardActiveObject();
     if (object) canvas.setActiveObject(object);
