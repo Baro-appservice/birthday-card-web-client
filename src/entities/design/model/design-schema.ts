@@ -44,7 +44,7 @@ export const imageElementSchema = baseElementSchema
 export const shapeElementSchema = baseElementSchema
   .extend({
     type: z.literal('shape'),
-    shape: z.enum(['rectangle', 'circle']),
+    shape: z.enum(['rectangle', 'circle', 'ellipse']),
     fill: z.string().min(1),
   })
   .strict();
@@ -61,7 +61,20 @@ export const designPageSchema = z
     background: z.string().min(1),
     elements: z.array(designElementSchema),
   })
-  .strict();
+  .strict()
+  .superRefine((page, context) => {
+    const seen = new Set<string>();
+    page.elements.forEach((element, index) => {
+      if (seen.has(element.id)) {
+        context.addIssue({
+          code: 'custom',
+          message: `중복된 요소 ID입니다: ${element.id}`,
+          path: ['elements', index, 'id'],
+        });
+      }
+      seen.add(element.id);
+    });
+  });
 
 export const designSchema = z
   .object({
@@ -70,4 +83,17 @@ export const designSchema = z
     height: z.literal(DESIGN_HEIGHT),
     pages: z.array(designPageSchema).min(1),
   })
-  .strict();
+  .strict()
+  .superRefine((design, context) => {
+    const seen = new Set<string>();
+    design.pages.forEach((page, index) => {
+      if (seen.has(page.id)) {
+        context.addIssue({
+          code: 'custom',
+          message: `중복된 페이지 ID입니다: ${page.id}`,
+          path: ['pages', index, 'id'],
+        });
+      }
+      seen.add(page.id);
+    });
+  });
