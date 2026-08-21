@@ -17,6 +17,10 @@ export function useEditor() {
   return useEditorContext().editor;
 }
 
+export function useEditorSaveCoordinator() {
+  return useEditorContext().saveCoordinator;
+}
+
 export function useDesignStore<T>(selector: (state: DesignState) => T): T {
   return useStore(useEditorContext().designStore, selector);
 }

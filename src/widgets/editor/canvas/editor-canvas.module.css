@@ -2,9 +2,9 @@
   width: min(100%, 720px);
   aspect-ratio: 4 / 5;
   overflow: hidden;
-  border-radius: 24px;
-  background: #fff2f7;
-  box-shadow: 0 20px 50px rgb(91 39 64 / 18%);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--canvas-shadow);
 }
 
 .canvas {
