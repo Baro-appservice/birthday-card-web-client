@@ -338,7 +338,7 @@ export class Editor implements EditorApi {
     return this.enqueue(async () => {
       this.assertActive();
       this.clearAssetGcTimer();
-      await this.dependencies.assetGateway.garbageCollect(this.protectedAssetIds());
+      await this.dependencies.assetGateway.garbageCollect?.(this.protectedAssetIds());
     });
   }
 
@@ -522,13 +522,13 @@ export class Editor implements EditorApi {
   }
 
   private scheduleAssetGarbageCollection(): void {
-    if (this.disposed) return;
+    if (this.disposed || !this.dependencies.assetGateway.garbageCollect) return;
     this.clearAssetGcTimer();
     this.assetGcTimer = setTimeout(() => {
       this.assetGcTimer = null;
       void this.enqueue(async () => {
         if (this.disposed) return;
-        await this.dependencies.assetGateway.garbageCollect(this.protectedAssetIds());
+        await this.dependencies.assetGateway.garbageCollect?.(this.protectedAssetIds());
       }).catch(() => undefined);
     }, ASSET_GC_IDLE_MS);
   }
