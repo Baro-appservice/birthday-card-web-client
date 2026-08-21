@@ -72,6 +72,13 @@ export class FabricEventAdapter {
       return operation();
     } finally {
       this.suppressSelectionEvents -= 1;
+      // Programmatic selection changes intentionally suppress Fabric events, but
+      // the adapter's dedupe snapshot must still follow the actual Canvas state.
+      // Otherwise a later user selection can be mistaken for a duplicate and be
+      // dropped, leaving Canvas selection and runtime selection out of sync.
+      if (this.suppressSelectionEvents === 0) {
+        this.selection = firstElementId(this.canvas.getActiveObjects());
+      }
     }
   }
 
