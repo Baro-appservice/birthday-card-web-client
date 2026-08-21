@@ -71,7 +71,7 @@ export async function waitForInitialDesignSave(page: Page, cardId: string): Prom
   await expect.poll(async () => {
     const record = await readDesignRecord(page, cardId);
     const current = record?.current as Partial<StoredDesign> | undefined;
-    return current?.version === 1 && current.width === 1080 && current.height === 1350;
+    return current?.version === 2 && current.width === 1080 && current.height === 1350;
   }).toBe(true);
 }
 
