@@ -1,4 +1,4 @@
-import { ActiveSelection, FabricObject, type Canvas } from 'fabric';
+import { ActiveSelection, FabricObject, Textbox, type Canvas } from 'fabric';
 import { describe, expect, it, vi } from 'vitest';
 
 import { FabricEventAdapter } from './fabric-event-adapter';
@@ -97,6 +97,47 @@ describe('FabricEventAdapter', () => {
       before: { x: 10, y: 20, width: 100, height: 50, rotation: 5 },
       after: { x: 50, y: 60, width: 200, height: 150, rotation: 15 },
     }]);
+    adapter.dispose();
+  });
+
+  it('Textbox corner scale은 fontSize와 width로 정규화해 전달한다', () => {
+    const canvas = createCanvas();
+    const received: unknown[] = [];
+    const adapter = new FabricEventAdapter(canvas as unknown as Canvas, (event) => received.push(event));
+    const title = setElementId(new Textbox('생일 축하해요', {
+      left: 10,
+      top: 20,
+      width: 200,
+      fontSize: 40,
+      angle: 5,
+    }), 'title');
+    const beforeHeight = title.height;
+
+    canvas.fire('mouse:down', { target: title });
+    title.set({ left: 30, top: 40, scaleX: 1.5, scaleY: 1.5, angle: 15 });
+    canvas.fire('object:modified', { target: title });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      type: 'element:transformed',
+      elementId: 'title',
+      before: {
+        x: 10,
+        y: 20,
+        width: 200,
+        height: beforeHeight,
+        rotation: 5,
+        fontSize: 40,
+      },
+      after: {
+        x: 30,
+        y: 40,
+        width: 300,
+        height: beforeHeight * 1.5,
+        rotation: 15,
+        fontSize: 60,
+      },
+    });
     adapter.dispose();
   });
 
