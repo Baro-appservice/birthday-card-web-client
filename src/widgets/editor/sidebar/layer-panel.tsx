@@ -13,7 +13,8 @@ function layerName(element: DesignElement): string {
 
 export function LayerPanel() {
   const editor = useEditor();
-  const page = useDesignStore((state) => state.design.pages[0]);
+  const activePageId = useEditorRuntimeStore((state) => state.activePageId);
+  const page = useDesignStore((state) => state.design.pages.find((candidate) => candidate.id === activePageId));
   const selectedElementIds = useEditorRuntimeStore((state) => state.selectedElementIds);
   const setError = useEditorUiStore((state) => state.setError);
   const selectElement = async (elementId: string) => {
