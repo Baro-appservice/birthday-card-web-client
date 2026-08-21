@@ -9,6 +9,8 @@ type TextFabricObject = FabricObject & { text?: string };
 
 type TransformSnapshot = Extract<EditorEvent, { type: 'element:transformed' }>['before'];
 
+let nextCanvasTextSession = 1;
+
 function firstElementId(objects: FabricObject[] | undefined): string[] {
   for (const object of objects ?? []) {
     const elementId = getElementId(object);
@@ -27,7 +29,8 @@ function readObjectTransform(object: FabricObject): TransformSnapshot {
 
 export class FabricEventAdapter {
   private readonly beforeTransforms = new WeakMap<FabricObject, TransformSnapshot>();
-  private readonly beforeTexts = new WeakMap<FabricObject, string>();
+  private readonly lastTexts = new WeakMap<FabricObject, string>();
+  private readonly textHistoryGroups = new WeakMap<FabricObject, string>();
   private selection: string[] = [];
   private disposed = false;
   private suppressSelectionEvents = 0;
@@ -42,7 +45,8 @@ export class FabricEventAdapter {
     objectRotating: (event: FabricEvent) => this.captureTransform(event.target),
     objectModified: (event: FabricEvent) => this.emitTransform(event.target),
     textEditingEntered: (event: FabricEvent) => this.captureText(event.target),
-    textEditingExited: (event: FabricEvent) => this.emitText(event.target),
+    textChanged: (event: FabricEvent) => this.emitText(event.target),
+    textEditingExited: (event: FabricEvent) => this.finishText(event.target),
   };
 
   constructor(
@@ -58,6 +62,7 @@ export class FabricEventAdapter {
     this.on('object:rotating', this.handlers.objectRotating);
     this.on('object:modified', this.handlers.objectModified);
     this.on('text:editing:entered', this.handlers.textEditingEntered);
+    this.on('text:changed', this.handlers.textChanged);
     this.on('text:editing:exited', this.handlers.textEditingExited);
   }
 
@@ -82,6 +87,7 @@ export class FabricEventAdapter {
     this.off('object:rotating', this.handlers.objectRotating);
     this.off('object:modified', this.handlers.objectModified);
     this.off('text:editing:entered', this.handlers.textEditingEntered);
+    this.off('text:changed', this.handlers.textChanged);
     this.off('text:editing:exited', this.handlers.textEditingExited);
   }
 
@@ -122,17 +128,34 @@ export class FabricEventAdapter {
     const textObject = object as TextFabricObject | undefined;
     const elementId = getElementId(object);
     if (!textObject || !elementId || typeof textObject.text !== 'string') return;
-    this.beforeTexts.set(textObject, textObject.text);
+    this.lastTexts.set(textObject, textObject.text);
+    this.textHistoryGroups.set(
+      textObject,
+      `canvas-text:${elementId}:${nextCanvasTextSession++}`,
+    );
   }
 
   private emitText(object: FabricObject | undefined): void {
     const textObject = object as TextFabricObject | undefined;
     if (!textObject) return;
-    const before = this.beforeTexts.get(textObject);
-    this.beforeTexts.delete(textObject);
+    const before = this.lastTexts.get(textObject);
     const elementId = getElementId(textObject);
     const after = textObject.text;
     if (!elementId || before === undefined || typeof after !== 'string' || before === after) return;
-    this.emit({ type: 'text:edited', elementId, before, after });
+    this.lastTexts.set(textObject, after);
+    this.emit({
+      type: 'text:edited',
+      elementId,
+      before,
+      after,
+      historyGroup: this.textHistoryGroups.get(textObject),
+    });
+  }
+
+  private finishText(object: FabricObject | undefined): void {
+    if (!object) return;
+    this.emitText(object);
+    this.lastTexts.delete(object);
+    this.textHistoryGroups.delete(object);
   }
 }
