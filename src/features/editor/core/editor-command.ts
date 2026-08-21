@@ -1,6 +1,7 @@
 export interface EditorCommand {
   execute(): void;
   undo(): void;
+  mergeWith?(next: EditorCommand): EditorCommand | null;
 }
 
 function rethrowWithCompensationErrors(
