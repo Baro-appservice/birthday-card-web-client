@@ -1,7 +1,8 @@
-import { clampTextFontSize, type Design, type DesignElement } from '@/entities/design';
-
+import type { Design } from './design';
 import { DESIGN_VERSION } from './design';
+import type { DesignElement } from './element';
 import { designSchema } from './design-schema';
+import { clampTextFontSize } from './text-policy';
 
 const APPROVED_FONT_FAMILIES = new Set(['system-ui', 'Arial', 'Georgia']);
 
