@@ -1,4 +1,9 @@
-import type { DesignElement, ElementTransformSnapshot } from '@/entities/design';
+import {
+  clampTextFontSize,
+  type DesignElement,
+  type ElementTransformSnapshot,
+  type TextTransformSnapshot,
+} from '@/entities/design';
 import type { DesignStore } from '@/features/editor/model/design-store';
 
 import type { EditorCommand } from '../core/editor-command';
@@ -16,11 +21,35 @@ function findElement(store: DesignStore, pageId: string, elementId: string): Des
   return element;
 }
 
+function applyTextTransform(
+  element: Extract<DesignElement, { type: 'text' }>,
+  transform: TextTransformSnapshot,
+): DesignElement {
+  const fontSize = clampTextFontSize(transform.fontSize);
+  const scaleCorrection = transform.fontSize > 0 ? fontSize / transform.fontSize : 1;
+
+  return {
+    ...element,
+    x: transform.x,
+    y: transform.y,
+    width: transform.width * scaleCorrection,
+    // v1 compatibility field only. Text height is content-derived and must not
+    // be overwritten by Fabric scale/measurement values.
+    height: element.height,
+    rotation: transform.rotation,
+    fontSize,
+  };
+}
+
 function applyTransform(
   element: DesignElement,
   transform: ElementTransformSnapshot,
 ): DesignElement {
-  const transformed = {
+  if (element.type === 'text' && 'fontSize' in transform) {
+    return applyTextTransform(element, transform);
+  }
+
+  return {
     ...element,
     x: transform.x,
     y: transform.y,
@@ -28,15 +57,6 @@ function applyTransform(
     height: transform.height,
     rotation: transform.rotation,
   };
-
-  if (element.type === 'text' && 'fontSize' in transform) {
-    return {
-      ...transformed,
-      fontSize: transform.fontSize,
-    };
-  }
-
-  return transformed;
 }
 
 export class TransformElementCommand implements EditorCommand {
@@ -50,7 +70,9 @@ export class TransformElementCommand implements EditorCommand {
     change: TransformChange,
   ) {
     const element = findElement(store, pageId, elementId);
-    this.before = applyTransform(element, change.before);
+    // The design store is the canonical pre-transform state. Renderer snapshots
+    // are interaction data and can contain transient Fabric scale values.
+    this.before = element;
     this.after = applyTransform(element, change.after);
   }
 
