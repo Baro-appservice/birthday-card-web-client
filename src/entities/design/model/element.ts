@@ -44,7 +44,7 @@ export interface ImageElement extends BaseElement {
 
 export interface ShapeElement extends BaseElement {
   type: 'shape';
-  shape: 'rectangle' | 'circle';
+  shape: 'rectangle' | 'circle' | 'ellipse';
   fill: string;
 }
 
