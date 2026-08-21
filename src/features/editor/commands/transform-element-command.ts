@@ -2,7 +2,6 @@ import {
   clampTextFontSize,
   type DesignElement,
   type ElementTransformSnapshot,
-  type TextTransformSnapshot,
 } from '@/entities/design';
 import type { DesignStore } from '@/features/editor/model/design-store';
 
@@ -23,10 +22,12 @@ function findElement(store: DesignStore, pageId: string, elementId: string): Des
 
 function applyTextTransform(
   element: Extract<DesignElement, { type: 'text' }>,
-  transform: TextTransformSnapshot,
+  transform: ElementTransformSnapshot,
+  enforcePolicy: boolean,
 ): DesignElement {
-  const fontSize = clampTextFontSize(transform.fontSize);
-  const scaleCorrection = transform.fontSize > 0 ? fontSize / transform.fontSize : 1;
+  const rawFontSize = 'fontSize' in transform ? transform.fontSize : element.fontSize;
+  const fontSize = enforcePolicy ? clampTextFontSize(rawFontSize) : rawFontSize;
+  const scaleCorrection = enforcePolicy && rawFontSize > 0 ? fontSize / rawFontSize : 1;
 
   return {
     ...element,
@@ -44,9 +45,10 @@ function applyTextTransform(
 function applyTransform(
   element: DesignElement,
   transform: ElementTransformSnapshot,
+  enforceTextPolicy: boolean,
 ): DesignElement {
-  if (element.type === 'text' && 'fontSize' in transform) {
-    return applyTextTransform(element, transform);
+  if (element.type === 'text') {
+    return applyTextTransform(element, transform, enforceTextPolicy);
   }
 
   return {
@@ -70,10 +72,8 @@ export class TransformElementCommand implements EditorCommand {
     change: TransformChange,
   ) {
     const element = findElement(store, pageId, elementId);
-    // The design store is the canonical pre-transform state. Renderer snapshots
-    // are interaction data and can contain transient Fabric scale values.
-    this.before = element;
-    this.after = applyTransform(element, change.after);
+    this.before = applyTransform(element, change.before, false);
+    this.after = applyTransform(element, change.after, true);
   }
 
   execute(): void {
