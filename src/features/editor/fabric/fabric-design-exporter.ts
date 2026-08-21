@@ -19,7 +19,7 @@ export class FabricDesignExporter implements DesignExporter {
     const element = document.createElement('canvas');
     const canvas = new StaticCanvas(element, { width: options.width, height: options.height });
     try {
-      const objects = await pageToFabricObjects(page, this.assetGateway);
+      const objects = await pageToFabricObjects(page, this.assetGateway, { imageFailureMode: 'throw' });
       canvas.backgroundColor = page.background;
       canvas.add(...objects);
       canvas.requestRenderAll();
