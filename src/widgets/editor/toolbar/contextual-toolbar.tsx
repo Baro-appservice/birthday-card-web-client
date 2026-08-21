@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { DesignElement, TextElement } from '@/entities/design';
 import { Button } from '@/shared/ui/button';
@@ -9,6 +9,77 @@ import { useDesignStore, useEditor, useEditorRuntimeStore, useEditorUiStore } fr
 
 const propertyTouchTargetClass = 'property-touch-target min-h-11 min-w-11';
 const approvedFontFamilies = ['system-ui', 'Arial', 'Georgia'] as const;
+const textCommitDelayMs = 160;
+
+function TextContentInput({
+  selected,
+  property,
+  onCommit,
+}: {
+  selected: Extract<DesignElement, { type: 'text' }>;
+  property: boolean;
+  onCommit(text: string): Promise<void>;
+}) {
+  const [draft, setDraft] = useState(selected.text);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submittedRef = useRef(selected.text);
+
+  const cancelScheduledCommit = () => {
+    if (timerRef.current === null) return;
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+  };
+
+  const commit = async (value: string) => {
+    cancelScheduledCommit();
+    if (value === submittedRef.current) return;
+    const previousSubmitted = submittedRef.current;
+    submittedRef.current = value;
+    try {
+      await onCommit(value);
+    } catch (error) {
+      submittedRef.current = previousSubmitted;
+      throw error;
+    }
+  };
+
+  const scheduleCommit = (value: string) => {
+    cancelScheduledCommit();
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      void commit(value);
+    }, textCommitDelayMs);
+  };
+
+  useEffect(() => {
+    setDraft(selected.text);
+    submittedRef.current = selected.text;
+  }, [selected.id, selected.text]);
+
+  useEffect(() => () => cancelScheduledCommit(), []);
+
+  return (
+    <input
+      id="selected-text-content"
+      aria-label="선택한 텍스트 내용"
+      type="text"
+      value={draft}
+      onChange={(event) => {
+        const value = event.target.value;
+        setDraft(value);
+        scheduleCommit(value);
+      }}
+      onBlur={() => void commit(draft)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+      className={`${property ? propertyTouchTargetClass : 'h-9'} min-w-48 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}
+    />
+  );
+}
 
 function FontSizeInput({
   fontSize,
@@ -92,12 +163,11 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
   return (
     <div className="flex flex-wrap items-center gap-2">
       <label className="sr-only" htmlFor="selected-text-content">선택한 텍스트 내용</label>
-      <input
-        id="selected-text-content"
-        type="text"
-        value={selected.text}
-        onChange={(event) => void update({ text: event.target.value })}
-        className={`${property ? propertyTouchTargetClass : 'h-9'} min-w-48 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}
+      <TextContentInput
+        key={selected.id}
+        selected={selected}
+        property={property}
+        onCommit={(text) => update({ text })}
       />
       <label className="sr-only" htmlFor="font-family">글꼴</label>
       <select id="font-family" value={displayedFontFamily} onChange={(event) => void update({ fontFamily: event.target.value })} className={`${property ? propertyTouchTargetClass : 'h-9'} rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}>
