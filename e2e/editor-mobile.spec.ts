@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 import {
   dragElementOnCanvas,
   expectPngDimensions,
+  expectZoomEdgesAndCanvasIdentity,
   findElement,
   readSavedDesign,
   resizeElementFromBottomRight,
@@ -11,6 +12,13 @@ import {
 } from './editor-helpers';
 
 test.use({ viewport: { width: 390, height: 844 } });
+
+test('390px에서도 25%와 200% Canvas edge에 접근하고 같은 Canvas를 유지한다', async ({ page }) => {
+  await page.goto('/editor/e2e-mobile-zoom');
+  await waitForEditorReady(page);
+
+  await expectZoomEdgesAndCanvasIdentity(page);
+});
 
 test('390px에서 텍스트를 편집하고 Undo·Redo·저장·PNG를 완료한다', async ({ page }) => {
   const cardId = 'e2e-mobile-flow';
@@ -125,5 +133,12 @@ test.describe('tablet smoke', () => {
     expect(box!.y).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(820);
     expect(box!.y + box!.height).toBeLessThanOrEqual(1180);
+  });
+
+  test('820px에서도 25%와 200% Canvas edge에 접근하고 같은 Canvas를 유지한다', async ({ page }) => {
+    await page.goto('/editor/e2e-tablet-zoom');
+    await waitForEditorReady(page);
+
+    await expectZoomEdgesAndCanvasIdentity(page);
   });
 });

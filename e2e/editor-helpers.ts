@@ -1,5 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
+import { readPngMetadata } from '../src/features/editor/lib/png-metadata';
+
 export interface StoredElement {
   id: string;
   type: 'text' | 'image' | 'shape';
@@ -157,7 +159,77 @@ export async function expectPngDimensions(
   const downloadPath = await download.path();
   if (!downloadPath) throw new Error('다운로드 파일 경로가 없습니다.');
   const png = await readFile(downloadPath);
-  expect(png.subarray(1, 4).toString('ascii')).toBe('PNG');
-  expect(png.readUInt32BE(16)).toBe(width);
-  expect(png.readUInt32BE(20)).toBe(height);
+  expect(readPngMetadata(png)).toEqual({ width, height });
+}
+
+export async function expectZoomEdgesAndCanvasIdentity(page: Page): Promise<void> {
+  const canvas = page.getByLabel('생일 카드 편집 캔버스');
+  await canvas.evaluate((element) => { element.dataset.zoomIdentity = 'stable'; });
+
+  for (let index = 0; index < 3; index += 1) {
+    await page.getByRole('button', { name: '축소' }).click();
+  }
+  await expect(page.getByText('25%')).toBeVisible();
+  const fit = await page.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>('[data-testid="editor-canvas-viewport"]');
+    const stage = document.querySelector<HTMLElement>('[data-testid="editor-canvas-zoom-stage"]');
+    if (!viewport || !stage) throw new Error('zoom layout을 찾을 수 없습니다.');
+    const viewportRect = viewport.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    return {
+      horizontalOverflow: viewport.scrollWidth - viewport.clientWidth,
+      verticalOverflow: viewport.scrollHeight - viewport.clientHeight,
+      leftGap: stageRect.left - viewportRect.left,
+      rightGap: viewportRect.right - stageRect.right,
+      topGap: stageRect.top - viewportRect.top,
+      bottomGap: viewportRect.bottom - stageRect.bottom,
+    };
+  });
+  expect(fit, `25% fit metrics: ${JSON.stringify(fit)}`).toMatchObject({
+    horizontalOverflow: 0,
+    verticalOverflow: 0,
+  });
+  expect(fit.leftGap).toBeGreaterThanOrEqual(0);
+  expect(fit.rightGap).toBeGreaterThanOrEqual(0);
+  expect(fit.topGap).toBeGreaterThanOrEqual(0);
+  expect(fit.bottomGap).toBeGreaterThanOrEqual(0);
+
+  for (let index = 0; index < 7; index += 1) {
+    await page.getByRole('button', { name: '확대' }).click();
+  }
+  await expect(page.getByText('200%')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>('[data-testid="editor-canvas-viewport"]');
+    return Boolean(viewport && viewport.scrollHeight > viewport.clientHeight);
+  })).toBe(true);
+
+  const edges = await page.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>('[data-testid="editor-canvas-viewport"]');
+    const stage = document.querySelector<HTMLElement>('[data-testid="editor-canvas-zoom-stage"]');
+    if (!viewport || !stage) throw new Error('zoom layout을 찾을 수 없습니다.');
+    viewport.scrollTo({ left: 0, top: 0 });
+    const startViewport = viewport.getBoundingClientRect();
+    const startStage = stage.getBoundingClientRect();
+    const start = {
+      left: startStage.left - startViewport.left,
+      top: startStage.top - startViewport.top,
+    };
+    viewport.scrollTo({
+      left: viewport.scrollWidth - viewport.clientWidth,
+      top: viewport.scrollHeight - viewport.clientHeight,
+    });
+    const endViewport = viewport.getBoundingClientRect();
+    const endStage = stage.getBoundingClientRect();
+    return {
+      ...start,
+      right: endStage.right - endViewport.right,
+      bottom: endStage.bottom - endViewport.bottom,
+      canvasIdentity: document.querySelector<HTMLCanvasElement>('canvas[aria-label="생일 카드 편집 캔버스"]')?.dataset.zoomIdentity,
+    };
+  });
+  expect(edges.left).toBeGreaterThanOrEqual(0);
+  expect(edges.top).toBeGreaterThanOrEqual(0);
+  expect(edges.right).toBeLessThanOrEqual(0);
+  expect(edges.bottom).toBeLessThanOrEqual(0);
+  expect(edges.canvasIdentity).toBe('stable');
 }
