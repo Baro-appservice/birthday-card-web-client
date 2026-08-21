@@ -16,6 +16,12 @@ export interface TransformSnapshot {
   rotation: number;
 }
 
+export interface TextTransformSnapshot extends TransformSnapshot {
+  fontSize: number;
+}
+
+export type ElementTransformSnapshot = TransformSnapshot | TextTransformSnapshot;
+
 export interface TextElement extends BaseElement {
   type: 'text';
   text: string;
