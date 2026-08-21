@@ -22,7 +22,12 @@ export interface TextTransformSnapshot extends TransformSnapshot {
 
 export type ElementTransformSnapshot = TransformSnapshot | TextTransformSnapshot;
 
-export interface TextElement extends BaseElement {
+export interface TextElement extends Omit<BaseElement, 'height'> {
+  /**
+   * @deprecated v1 persistence compatibility only.
+   * Text layout height is content-derived and must not be used as a render source of truth.
+   */
+  height: number;
   type: 'text';
   text: string;
   fontFamily: string;
