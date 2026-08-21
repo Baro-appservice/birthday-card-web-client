@@ -22,14 +22,21 @@ const positiveOr = (value: number | undefined, fallback: number) => {
   return Math.abs(normalized) > 0 ? Math.abs(normalized) : fallback;
 };
 
+const multipliedPositiveOr = (left: number, right: number, fallback: number) => {
+  const product = left * right;
+  return Number.isFinite(product) && product > 0 ? product : fallback;
+};
+
+const APPROVED_FONT_FAMILIES = new Set(['system-ui', 'Arial', 'Georgia']);
+
 export function readTransform(values: FabricTransformValues): TransformSnapshot {
   const width = positiveOr(values.width, 1);
   const height = positiveOr(values.height, 1);
   return {
     x: finiteOr(values.left, 0),
     y: finiteOr(values.top, 0),
-    width: width * positiveOr(values.scaleX, 1),
-    height: height * positiveOr(values.scaleY, 1),
+    width: multipliedPositiveOr(width, positiveOr(values.scaleX, 1), width),
+    height: multipliedPositiveOr(height, positiveOr(values.scaleY, 1), height),
     rotation: finiteOr(values.angle, 0),
   };
 }
@@ -49,7 +56,9 @@ function mapText(element: Extract<DesignElement, { type: 'text' }>): FabricObjec
   const textbox = new Textbox(element.text, {
     ...commonOptions(element),
     width: element.width,
-    fontFamily: element.fontFamily,
+    fontFamily: APPROVED_FONT_FAMILIES.has(element.fontFamily)
+      ? element.fontFamily
+      : 'system-ui',
     fontSize: element.fontSize,
     fontWeight: element.fontWeight,
     fill: element.color,
@@ -75,15 +84,28 @@ async function mapImage(
   element: Extract<DesignElement, { type: 'image' }>,
   assetGateway: Pick<AssetGateway, 'resolveUrl'>,
 ): Promise<FabricObject> {
-  const image = await FabricImage.fromURL(await assetGateway.resolveUrl(element.assetId));
-  const intrinsicWidth = positiveOr(image.width, element.width);
-  const intrinsicHeight = positiveOr(image.height, element.height);
-  image.set({
-    ...commonOptions(element),
-    scaleX: element.width / intrinsicWidth,
-    scaleY: element.height / intrinsicHeight,
-  });
-  return image;
+  try {
+    const image = await FabricImage.fromURL(await assetGateway.resolveUrl(element.assetId));
+    const intrinsicWidth = positiveOr(image.width, element.width);
+    const intrinsicHeight = positiveOr(image.height, element.height);
+    image.set({
+      ...commonOptions(element),
+      scaleX: element.width / intrinsicWidth,
+      scaleY: element.height / intrinsicHeight,
+    });
+    return image;
+  } catch {
+    return new Rect({
+      ...commonOptions(element),
+      width: element.width,
+      height: element.height,
+      fill: '#f7f2f5',
+      stroke: '#b4235a',
+      strokeWidth: 6,
+      strokeDashArray: [18, 12],
+      strokeUniform: true,
+    });
+  }
 }
 
 export async function elementToFabricObject(

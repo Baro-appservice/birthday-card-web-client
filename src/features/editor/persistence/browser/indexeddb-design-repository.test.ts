@@ -88,6 +88,31 @@ describe('IndexedDbDesignRepository', () => {
     await closeAndDelete(db);
   });
 
+  it('페이지가 비어 있는 current는 손상으로 분류하고 직전 정상 backup을 보존한다', async () => {
+    const db = await openTestDb();
+    const repository = new IndexedDbDesignRepository(db);
+    const stable = createSampleDesign();
+
+    await repository.save('local-demo', stable);
+    await repository.save('local-demo', {
+      ...stable,
+      pages: [{ ...stable.pages[0], background: '#ffffff' }],
+    });
+    await replaceCurrent(db, 'local-demo', {
+      version: 1,
+      width: 1080,
+      height: 1350,
+      pages: [],
+    });
+
+    await expect(repository.load('local-demo')).resolves.toEqual({
+      status: 'recoverable',
+      reason: 'corrupt',
+      backup: stable,
+    });
+    await closeAndDelete(db);
+  });
+
   it('손상된 backup은 recoverable 결과에 포함하지 않는다', async () => {
     const db = await openTestDb();
     const repository = new IndexedDbDesignRepository(db);

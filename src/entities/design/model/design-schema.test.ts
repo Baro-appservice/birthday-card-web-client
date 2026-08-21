@@ -181,4 +181,20 @@ describe('designSchema', () => {
       }).success,
     ).toBe(false);
   });
+
+  it('편집할 페이지가 하나도 없는 Design을 거부한다', () => {
+    expect(designSchema.safeParse({
+      ...createSampleDesign(),
+      pages: [],
+    }).success).toBe(false);
+  });
+
+  it('샘플의 모든 텍스트는 승인된 기본 글꼴 system-ui를 사용한다', () => {
+    const textElements = createSampleDesign().pages[0].elements.filter(
+      (element) => element.type === 'text',
+    );
+
+    expect(textElements).not.toHaveLength(0);
+    expect(textElements.every((element) => element.fontFamily === 'system-ui')).toBe(true);
+  });
 });

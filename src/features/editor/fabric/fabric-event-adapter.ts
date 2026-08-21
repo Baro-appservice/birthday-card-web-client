@@ -7,13 +7,12 @@ import { getElementId } from './fabric-object-metadata';
 type FabricEvent = { target?: FabricObject; selected?: FabricObject[] };
 type TextFabricObject = FabricObject & { text?: string };
 
-function dedupeElementIds(objects: FabricObject[] | undefined): string[] {
-  const ids = new Set<string>();
+function firstElementId(objects: FabricObject[] | undefined): string[] {
   for (const object of objects ?? []) {
     const elementId = getElementId(object);
-    if (elementId) ids.add(elementId);
+    if (elementId) return [elementId];
   }
-  return [...ids];
+  return [];
 }
 
 function isSameSelection(previous: string[], next: string[]): boolean {
@@ -79,7 +78,7 @@ export class FabricEventAdapter {
   }
 
   private emitSelection(objects: FabricObject[] | undefined): void {
-    const elementIds = dedupeElementIds(objects);
+    const elementIds = firstElementId(objects);
     if (isSameSelection(this.selection, elementIds)) return;
     this.selection = elementIds;
     this.emit({ type: 'selection:changed', elementIds });

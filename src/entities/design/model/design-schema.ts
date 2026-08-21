@@ -68,6 +68,6 @@ export const designSchema = z
     version: z.literal(DESIGN_VERSION),
     width: z.literal(DESIGN_WIDTH),
     height: z.literal(DESIGN_HEIGHT),
-    pages: z.array(designPageSchema),
+    pages: z.array(designPageSchema).min(1),
   })
   .strict();

@@ -85,7 +85,10 @@ describe('Editor', () => {
     await kit.editor.addText();
 
     expect(calls).toEqual(['render', 'change']);
-    expect(selectedElement(kit.designStore.getState().design, 'created-element')).toMatchObject({ type: 'text' });
+    expect(selectedElement(kit.designStore.getState().design, 'created-element')).toMatchObject({
+      type: 'text',
+      fontFamily: 'system-ui',
+    });
     expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['created-element']);
   });
 
@@ -168,22 +171,22 @@ describe('Editor', () => {
     expect(selectedElement(kit.designStore.getState().design, 'created-element')).toBeDefined();
   });
 
-  it('renderer selection 이벤트는 문서 변경 없이 FIFO runtime selection만 바꾼다', async () => {
+  it('renderer selection 이벤트는 문서 변경 없이 첫 ID 하나만 runtime selection에 둔다', async () => {
     const kit = createEditorTestKit();
 
     kit.emit({ type: 'selection:changed', elementIds: ['title', 'name'] });
 
-    await vi.waitFor(() => expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['title', 'name']));
+    await vi.waitFor(() => expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['title']));
     expect(kit.renderer.render).not.toHaveBeenCalled();
     expect(kit.onDocumentChange).not.toHaveBeenCalled();
   });
 
-  it('renderer selection 이벤트의 중복 ID를 순서를 보존해 제거한다', async () => {
+  it('renderer selection 이벤트의 중복·추가 ID를 모두 버리고 첫 ID만 보존한다', async () => {
     const kit = createEditorTestKit();
 
     kit.emit({ type: 'selection:changed', elementIds: ['title', 'name', 'title', 'name'] });
 
-    await vi.waitFor(() => expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['title', 'name']));
+    await vi.waitFor(() => expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['title']));
   });
 
   it('render 중 들어온 selection 이벤트는 실패 rollback 뒤 FIFO 순서로 적용한다', async () => {
@@ -424,6 +427,23 @@ describe('Editor', () => {
     expect(selectedElement(kit.designStore.getState().design, 'title')).toMatchObject({ color: '#b52262' });
   });
 
+  it.each([0, Number.NaN, 11, 161, Number.POSITIVE_INFINITY])(
+    'Core 경계에서 유효하지 않은 글자 크기 %s를 거부한다',
+    async (fontSize) => {
+      const kit = createEditorTestKit();
+      kit.runtimeStore.getState().setSelectedElementIds(['title']);
+
+      await expect(kit.editor.updateSelection({
+        type: 'text',
+        changes: { fontSize },
+      })).rejects.toThrow('글자 크기');
+
+      expect(selectedElement(kit.designStore.getState().design, 'title'))
+        .toMatchObject({ fontSize: 72 });
+      expect(kit.renderer.render).not.toHaveBeenCalled();
+    },
+  );
+
   it('레이어 경계에서는 명령을 만들지 않고 안전하게 무시한다', async () => {
     const kit = createEditorTestKit();
     kit.runtimeStore.getState().setSelectedElementIds(['bottom-decoration']);
@@ -434,43 +454,16 @@ describe('Editor', () => {
     expect(kit.designStore.getState().design.pages[0].elements.at(-1)?.id).toBe('bottom-decoration');
   });
 
-  it('중복된 선택 ID를 한 번만 삭제해 undo 가능한 단일 변경으로 처리한다', async () => {
+  it('직접 주입된 다중 선택도 첫 요소 하나만 삭제해 사용자 다중 동작을 만들지 않는다', async () => {
     const kit = createEditorTestKit();
-    kit.runtimeStore.getState().setSelectedElementIds(['title', 'title']);
-
-    await kit.editor.deleteSelection();
-    expect(selectedElement(kit.designStore.getState().design, 'title')).toBeUndefined();
-
-    await kit.editor.undo();
-    expect(selectedElement(kit.designStore.getState().design, 'title')).toBeDefined();
-  });
-
-  it('인접 다중 삭제는 selection 순서와 무관하게 undo·redo 레이어 순서를 보존한다', async () => {
-    const kit = createEditorTestKit();
-    const original = kit.designStore.getState().design.pages[0].elements.map((element) => element.id);
     kit.runtimeStore.getState().setSelectedElementIds(['title', 'photo']);
 
     await kit.editor.deleteSelection();
+    expect(selectedElement(kit.designStore.getState().design, 'title')).toBeUndefined();
+    expect(selectedElement(kit.designStore.getState().design, 'photo')).toBeDefined();
+
     await kit.editor.undo();
-    expect(kit.designStore.getState().design.pages[0].elements.map((element) => element.id)).toEqual(original);
-
-    await kit.editor.redo();
-    expect(kit.designStore.getState().design.pages[0].elements.map((element) => element.id))
-      .toEqual(original.filter((id) => id !== 'photo' && id !== 'title'));
-  });
-
-  it('비인접 다중 삭제도 undo·redo 레이어 순서를 보존한다', async () => {
-    const kit = createEditorTestKit();
-    const original = kit.designStore.getState().design.pages[0].elements.map((element) => element.id);
-    kit.runtimeStore.getState().setSelectedElementIds(['bottom-decoration', 'photo']);
-
-    await kit.editor.deleteSelection();
-    await kit.editor.undo();
-    expect(kit.designStore.getState().design.pages[0].elements.map((element) => element.id)).toEqual(original);
-
-    await kit.editor.redo();
-    expect(kit.designStore.getState().design.pages[0].elements.map((element) => element.id))
-      .toEqual(original.filter((id) => id !== 'photo' && id !== 'bottom-decoration'));
+    expect(selectedElement(kit.designStore.getState().design, 'title')).toBeDefined();
   });
 
   it('두 번째 mount는 canvas와 무관하게 명확히 거부한다', async () => {

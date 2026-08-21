@@ -31,13 +31,27 @@ describe('fabric element mapper', () => {
     })).toEqual({ x: 0, y: 0, width: 100, height: 50, rotation: 0 });
   });
 
+  it('유한한 입력의 곱셈이 overflow하면 안전한 양의 크기로 정규화한다', () => {
+    const transform = readTransform({
+      width: Number.MAX_VALUE,
+      height: Number.MAX_VALUE,
+      scaleX: 2,
+      scaleY: 2,
+    });
+
+    expect(Number.isFinite(transform.width)).toBe(true);
+    expect(Number.isFinite(transform.height)).toBe(true);
+    expect(transform.width).toBeGreaterThan(0);
+    expect(transform.height).toBeGreaterThan(0);
+  });
+
   it('텍스트 스타일과 left/top 원점 및 metadata를 Textbox로 옮긴다', async () => {
     const object = await elementToFabricObject(textElement, assetGateway);
 
     expect(object).toBeInstanceOf(Textbox);
     expect(object).toMatchObject({
       left: 120, top: 240, width: 600, angle: 12, opacity: 0.7,
-      originX: 'left', originY: 'top', fontFamily: 'Pretendard', fontSize: 48,
+      originX: 'left', originY: 'top', fontFamily: 'system-ui', fontSize: 48,
       fontWeight: 700, fill: '#b52262', textAlign: 'center',
     });
     expect(getElementId(object)).toBe('title');
@@ -87,4 +101,29 @@ describe('fabric element mapper', () => {
     expect(object).toMatchObject({ left: 100, top: 200, scaleX: 1.5, scaleY: 2.5, originX: 'left', originY: 'top' });
     expect(getElementId(object)).toBe('photo');
   });
+
+  it.each(['resolve', 'decode'] as const)(
+    '이미지 %s 실패는 element transform과 ID를 보존한 Fabric placeholder로 격리한다',
+    async (failurePoint) => {
+      const gateway = { resolveUrl: vi.fn().mockResolvedValue('/assets/broken.png') };
+      if (failurePoint === 'resolve') gateway.resolveUrl.mockRejectedValueOnce(new Error('missing asset'));
+      else vi.spyOn(FabricImage, 'fromURL').mockRejectedValueOnce(new Error('decode failed'));
+
+      const object = await elementToFabricObject({
+        id: 'broken-photo', type: 'image', assetId: 'asset-broken', x: 101, y: 202,
+        width: 303, height: 404, rotation: 17, opacity: 0.6,
+      }, gateway);
+
+      expect(object).toBeInstanceOf(Rect);
+      expect(object).toMatchObject({
+        left: 101,
+        top: 202,
+        width: 303,
+        height: 404,
+        angle: 17,
+        opacity: 0.6,
+      });
+      expect(getElementId(object)).toBe('broken-photo');
+    },
+  );
 });

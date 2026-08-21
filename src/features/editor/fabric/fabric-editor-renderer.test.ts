@@ -27,7 +27,7 @@ vi.mock('fabric', async (importOriginal) => {
       return true;
     });
     dispose = vi.fn(async () => true);
-    constructor(element: HTMLCanvasElement) { this.lowerCanvasEl = element; fabricState.canvases.push(this); }
+    constructor(element: HTMLCanvasElement, public readonly options: Record<string, unknown>) { this.lowerCanvasEl = element; fabricState.canvases.push(this); }
     getObjects() { return this.objects; }
     getActiveObjects() { return this.activeObjects; }
     on(event: string, handler: (event: Record<string, unknown>) => void) { this.handlers.set(event, handler); return () => this.off(event, handler); }
@@ -47,6 +47,19 @@ const textDesign = (): Design => {
 };
 
 describe('FabricEditorRenderer', () => {
+  it('marquee와 modifier 다중 선택을 실제 Canvas 구성 경계에서 끈다', () => {
+    const renderer = new FabricEditorRenderer(gateway);
+    renderer.mount(canvasElement());
+
+    expect(fabricState.canvases.at(-1).options).toMatchObject({
+      preserveObjectStacking: true,
+      selection: false,
+      selectionKey: null,
+      altSelectionKey: null,
+    });
+    renderer.dispose();
+  });
+
   it('render 전 선택을 복원하고 없는 ID는 안전하게 제외한다', async () => {
     const renderer = new FabricEditorRenderer(gateway);
     renderer.mount(canvasElement());
@@ -61,7 +74,7 @@ describe('FabricEditorRenderer', () => {
     renderer.dispose();
   });
 
-  it('여러 요소 ActiveSelection은 Domain transform을 만들 수 없게 잠근다', async () => {
+  it('programmatic 다중 ID도 첫 요소 하나만 선택해 ActiveSelection을 만들지 않는다', async () => {
     const renderer = new FabricEditorRenderer(gateway);
     renderer.mount(canvasElement());
     const design = textDesign();
@@ -69,8 +82,38 @@ describe('FabricEditorRenderer', () => {
     renderer.select(['title', 'name']);
 
     const canvas = fabricState.canvases.at(-1);
-    const group = canvas.setActiveObject.mock.calls.at(-1)[0];
-    expect(group).toMatchObject({ lockMovementX: true, lockMovementY: true, lockScalingX: true, lockScalingY: true, lockRotation: true });
+    expect(canvas.activeObjects.map(getElementId)).toEqual(['title']);
+    expect(canvas.setActiveObject.mock.calls.at(-1)[0]).toBe(canvas.objects[0]);
+    renderer.dispose();
+  });
+
+  it('깨진 이미지 하나는 placeholder로 격리하고 나머지 요소와 선택을 유지한다', async () => {
+    const partialGateway = {
+      resolveUrl: vi.fn((assetId: string) => assetId === 'broken'
+        ? Promise.reject(new Error('missing'))
+        : Promise.resolve('/asset.png')),
+    };
+    const renderer = new FabricEditorRenderer(partialGateway);
+    renderer.mount(canvasElement());
+    const design: Design = {
+      ...createSampleDesign(),
+      pages: [{
+        id: 'page-1',
+        background: '#fff',
+        elements: [
+          { id: 'kept-text', type: 'text', text: 'kept', x: 0, y: 0, width: 100, height: 50, rotation: 0, opacity: 1, fontFamily: 'system-ui', fontSize: 20, fontWeight: 400, color: '#000', textAlign: 'left' },
+          { id: 'broken-image', type: 'image', assetId: 'broken', x: 10, y: 70, width: 100, height: 100, rotation: 0, opacity: 1 },
+          { id: 'kept-shape', type: 'shape', shape: 'rectangle', x: 10, y: 200, width: 100, height: 50, rotation: 0, opacity: 1, fill: '#fff' },
+        ],
+      }],
+    };
+
+    await renderer.render(design);
+    renderer.select(['broken-image']);
+
+    const canvas = fabricState.canvases.at(-1);
+    expect(canvas.objects.map(getElementId)).toEqual(['kept-text', 'broken-image', 'kept-shape']);
+    expect(canvas.activeObjects.map(getElementId)).toEqual(['broken-image']);
     renderer.dispose();
   });
 

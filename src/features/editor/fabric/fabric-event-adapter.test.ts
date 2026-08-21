@@ -25,7 +25,7 @@ function element(id: string) {
 }
 
 describe('FabricEventAdapter', () => {
-  it('selection ID를 Fabric 순서대로 중복 없이 한 번만 전달한다', () => {
+  it('selection ID를 Fabric 순서의 첫 ID 하나로만 정규화한다', () => {
     const canvas = createCanvas();
     const received: string[][] = [];
     const adapter = new FabricEventAdapter(canvas as unknown as Canvas, (event) => {
@@ -41,11 +41,11 @@ describe('FabricEventAdapter', () => {
     canvas.setActiveObjects([]);
     canvas.fire('selection:cleared');
 
-    expect(received).toEqual([['title', 'name'], []]);
+    expect(received).toEqual([['title'], []]);
     adapter.dispose();
   });
 
-  it('selection:updated의 delta가 아니라 현재 전체 선택 집합을 전달한다', () => {
+  it('selection:updated도 현재 집합의 첫 ID 하나만 전달한다', () => {
     const canvas = createCanvas();
     const received: string[][] = [];
     const adapter = new FabricEventAdapter(canvas as unknown as Canvas, (event) => {
@@ -56,14 +56,14 @@ describe('FabricEventAdapter', () => {
 
     canvas.setActiveObjects([title]);
     canvas.fire('selection:created', { selected: [title] });
-    canvas.setActiveObjects([title, name]);
+    canvas.setActiveObjects([name, title]);
     canvas.fire('selection:updated', { selected: [name], deselected: [] });
 
-    expect(received).toEqual([['title'], ['title', 'name']]);
+    expect(received).toEqual([['title'], ['name']]);
     adapter.dispose();
   });
 
-  it('selection:updated의 deselected delta 대신 제거 뒤 현재 전체 선택 집합을 전달한다', () => {
+  it('selection:updated의 제거 뒤에도 남은 첫 ID 하나만 전달한다', () => {
     const canvas = createCanvas();
     const received: string[][] = [];
     const adapter = new FabricEventAdapter(canvas as unknown as Canvas, (event) => {
@@ -74,10 +74,10 @@ describe('FabricEventAdapter', () => {
 
     canvas.setActiveObjects([title, name]);
     canvas.fire('selection:created', { selected: [title, name] });
-    canvas.setActiveObjects([title]);
+    canvas.setActiveObjects([name]);
     canvas.fire('selection:updated', { selected: [], deselected: [name] });
 
-    expect(received).toEqual([['title', 'name'], ['title']]);
+    expect(received).toEqual([['title'], ['name']]);
     adapter.dispose();
   });
 

@@ -1,6 +1,6 @@
 import type { Design } from '@/entities/design';
 import type { AssetGateway, EditorEvent, EditorRenderer } from '@/features/editor/core/ports';
-import { ActiveSelection, Canvas, type FabricObject } from 'fabric';
+import { Canvas, type FabricObject } from 'fabric';
 
 import { FabricEventAdapter } from './fabric-event-adapter';
 import { pageToFabricObjects } from './fabric-element-mapper';
@@ -23,7 +23,12 @@ export class FabricEditorRenderer implements EditorRenderer {
     this.assertUsable();
     if (this.canvas?.lowerCanvasEl === element) return;
     this.releaseCanvas();
-    const canvas = new Canvas(element, { preserveObjectStacking: true, selection: true });
+    const canvas = new Canvas(element, {
+      preserveObjectStacking: true,
+      selection: false,
+      selectionKey: null,
+      altSelectionKey: null,
+    });
     this.canvas = canvas;
     this.eventAdapter = new FabricEventAdapter(canvas, (event) => this.emit(event));
   }
@@ -60,24 +65,12 @@ export class FabricEditorRenderer implements EditorRenderer {
 
   select(elementIds: string[]): void {
     const canvas = this.requireCanvas();
-    const requested = new Set(dedupe(elementIds));
-    const objects = canvas.getObjects().filter((object) => {
-      const elementId = getElementId(object);
-      return elementId !== undefined && requested.has(elementId);
-    });
+    const requested = dedupe(elementIds);
+    const object = requested
+      .map((elementId) => canvas.getObjects().find((candidate) => getElementId(candidate) === elementId))
+      .find((candidate): candidate is FabricObject => candidate !== undefined);
     canvas.discardActiveObject();
-    if (objects.length === 1) {
-      canvas.setActiveObject(objects[0]);
-    } else if (objects.length > 1) {
-      canvas.setActiveObject(new ActiveSelection(objects, {
-        canvas,
-        lockMovementX: true,
-        lockMovementY: true,
-        lockScalingX: true,
-        lockScalingY: true,
-        lockRotation: true,
-      }));
-    }
+    if (object) canvas.setActiveObject(object);
     canvas.requestRenderAll();
   }
 

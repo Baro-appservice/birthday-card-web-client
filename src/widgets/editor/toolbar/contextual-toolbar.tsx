@@ -1,11 +1,57 @@
 'use client';
 
+import { useState } from 'react';
+
 import type { DesignElement, TextElement } from '@/entities/design';
 import { Button } from '@/shared/ui/button';
 import { ColorInput } from '@/shared/ui/color-input';
 import { useDesignStore, useEditor, useEditorRuntimeStore, useEditorUiStore } from '@/features/editor/hooks/use-editor';
 
 const propertyTouchTargetClass = 'property-touch-target min-h-11 min-w-11';
+const approvedFontFamilies = ['system-ui', 'Arial', 'Georgia'] as const;
+
+function FontSizeInput({
+  fontSize,
+  property,
+  onCommit,
+}: {
+  fontSize: number;
+  property: boolean;
+  onCommit(fontSize: number): Promise<void>;
+}) {
+  const [draft, setDraft] = useState(String(fontSize));
+
+  const commit = async () => {
+    const parsed = Number(draft);
+    if (draft.trim() === '' || !Number.isFinite(parsed)) {
+      setDraft(String(fontSize));
+      return;
+    }
+    const clamped = Math.min(160, Math.max(12, parsed));
+    setDraft(String(clamped));
+    if (clamped !== fontSize) await onCommit(clamped);
+  };
+
+  return (
+    <input
+      id="font-size"
+      aria-label="글자 크기"
+      type="number"
+      min="12"
+      max="160"
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => void commit()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+      className={`${property ? propertyTouchTargetClass : 'h-9'} w-16 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}
+    />
+  );
+}
 
 function SelectionControls({ property }: { property: boolean }) {
   const editor = useEditor();
@@ -40,6 +86,9 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
       setError(error instanceof Error ? error.message : '텍스트 서식을 바꾸지 못했습니다. 다시 시도해 주세요.');
     }
   };
+  const displayedFontFamily = approvedFontFamilies.includes(
+    selected.fontFamily as (typeof approvedFontFamilies)[number],
+  ) ? selected.fontFamily : 'system-ui';
   return (
     <div className="flex flex-wrap items-center gap-2">
       <label className="sr-only" htmlFor="selected-text-content">선택한 텍스트 내용</label>
@@ -51,11 +100,16 @@ function TextControls({ selected, property }: { selected: Extract<DesignElement,
         className={`${property ? propertyTouchTargetClass : 'h-9'} min-w-48 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}
       />
       <label className="sr-only" htmlFor="font-family">글꼴</label>
-      <select id="font-family" value={selected.fontFamily} onChange={(event) => void update({ fontFamily: event.target.value })} className={`${property ? propertyTouchTargetClass : 'h-9'} rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}>
+      <select id="font-family" value={displayedFontFamily} onChange={(event) => void update({ fontFamily: event.target.value })} className={`${property ? propertyTouchTargetClass : 'h-9'} rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`}>
         <option value="system-ui">system-ui</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option>
       </select>
       <label className="sr-only" htmlFor="font-size">글자 크기</label>
-      <input id="font-size" aria-label="글자 크기" type="number" min="12" max="160" value={selected.fontSize} onChange={(event) => void update({ fontSize: Number(event.target.value) })} className={`${property ? propertyTouchTargetClass : 'h-9'} w-16 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]`} />
+      <FontSizeInput
+        key={`${selected.id}:${selected.fontSize}`}
+        fontSize={selected.fontSize}
+        property={property}
+        onCommit={(fontSize) => update({ fontSize })}
+      />
       <Button variant={selected.fontWeight >= 600 ? 'primary' : 'secondary'} className={property ? propertyTouchTargetClass : ''} aria-label="굵게" onClick={() => void update({ fontWeight: selected.fontWeight >= 600 ? 400 : 700 })}>B</Button>
       <ColorInput label="글자색" value={selected.color} inputClassName={property ? propertyTouchTargetClass : ''} onChange={(color) => void update({ color })} />
       <div className="flex rounded-lg border border-[var(--border)] p-0.5" aria-label="텍스트 정렬">

@@ -19,7 +19,6 @@ import { DeleteElementCommand } from '../commands/delete-element-command';
 import { ReorderElementCommand } from '../commands/reorder-element-command';
 import { TransformElementCommand } from '../commands/transform-element-command';
 import { UpdateElementCommand } from '../commands/update-element-command';
-import { CompositeEditorCommand } from './editor-command';
 import { EditorHistory } from './editor-history';
 
 export interface EditorDependencies {
@@ -67,7 +66,7 @@ const DEFAULT_TEXT: Omit<TextElement, 'id'> = {
   rotation: 0,
   opacity: 1,
   text: '새로운 메시지',
-  fontFamily: 'Pretendard',
+  fontFamily: 'system-ui',
   fontSize: 48,
   fontWeight: 600,
   color: '#5a2740',
@@ -87,10 +86,6 @@ function createShapeElement(id: string, shape: ShapeElement['shape']): ShapeElem
     shape,
     fill: '#ffb6cf',
   };
-}
-
-function dedupeElementIds(elementIds: readonly string[]): string[] {
-  return [...new Set(elementIds)];
 }
 
 export class Editor implements EditorApi {
@@ -209,6 +204,12 @@ export class Editor implements EditorApi {
   async updateSelection(patch: SelectionPatch): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
+      if (patch.type === 'text' && patch.changes.fontSize !== undefined) {
+        const { fontSize } = patch.changes;
+        if (!Number.isFinite(fontSize) || fontSize < 12 || fontSize > 160) {
+          throw new Error('글자 크기는 12에서 160 사이의 유한한 숫자여야 합니다.');
+        }
+      }
       const selected = this.singleSelectedElement();
       if (!selected || selected.type !== patch.type) return;
       await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
@@ -223,20 +224,13 @@ export class Editor implements EditorApi {
   async deleteSelection(): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
-      const selectedIds = dedupeElementIds(this.selectedElementIds).filter((id) => this.findElement(id));
-      if (selectedIds.length === 0) return;
-      const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
-      if (!page) return;
-      selectedIds.sort((left, right) => (
-        page.elements.findIndex((element) => element.id === right)
-        - page.elements.findIndex((element) => element.id === left)
-      ));
-      const commands = selectedIds.map((elementId) => new DeleteElementCommand(
+      const elementId = this.selectedElementIds.find((id) => this.findElement(id));
+      if (!elementId) return;
+      await this.applyDocumentMutation(() => this.history.execute(new DeleteElementCommand(
         this.dependencies.designStore,
         this.pageId,
         elementId,
-      ));
-      await this.applyDocumentMutation(() => this.history.execute(new CompositeEditorCommand(commands)), []);
+      )), []);
     });
   }
 
@@ -426,7 +420,7 @@ export class Editor implements EditorApi {
     if (event.type === 'selection:changed') {
       await this.enqueue(async () => {
         this.assertGeneration(eventGeneration);
-        this.dependencies.runtimeStore.getState().setSelectedElementIds(dedupeElementIds(event.elementIds));
+        this.dependencies.runtimeStore.getState().setSelectedElementIds(event.elementIds.slice(0, 1));
       });
       return;
     }

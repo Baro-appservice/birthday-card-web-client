@@ -24,6 +24,15 @@ describe('desktop editor tools', () => {
     expect(addText).toHaveBeenCalledOnce();
   });
 
+  it('도구 전환은 tab 역할 대신 현재 상태를 알리는 pressed 버튼을 사용한다', () => {
+    const kit = createEditorTestKit();
+    render(<EditorSidebar />, { wrapper: kit.wrapper });
+
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '텍스트' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '사진' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('사진 업로드 실패 시 ImageElement를 추가하지 않고 오류를 알린다', async () => {
     const user = userEvent.setup({ applyAccept: false });
     const kit = createEditorTestKit();
@@ -81,6 +90,42 @@ describe('desktop editor tools', () => {
     await waitFor(() => expect(
       kit.designStore.getState().design.pages[0].elements.find((element) => element.id === 'title'),
     ).toMatchObject({ text: '올해도 제 생일을 축하해 주세요!' }));
+  });
+
+  it('글자 크기를 비우고 다시 입력하는 동안 저장하지 않고 blur에서 한 번만 clamp해 반영한다', async () => {
+    const user = userEvent.setup();
+    const kit = createEditorTestKit();
+    kit.runtimeStore.getState().setSelectedElementIds(['title']);
+    const updateSelection = vi.spyOn(kit.editor, 'updateSelection');
+    render(<ContextualToolbar />, { wrapper: kit.wrapper });
+    const input = screen.getByRole('spinbutton', { name: '글자 크기' });
+
+    await user.clear(input);
+    expect(updateSelection).not.toHaveBeenCalled();
+    await user.type(input, '200');
+    expect(updateSelection).not.toHaveBeenCalled();
+    await user.tab();
+
+    await waitFor(() => expect(updateSelection).toHaveBeenCalledOnce());
+    expect(updateSelection).toHaveBeenCalledWith({
+      type: 'text',
+      changes: { fontSize: 160 },
+    });
+  });
+
+  it('기존의 알 수 없는 글꼴은 외부 글꼴 요청 없이 system-ui 대체 표시를 사용한다', () => {
+    const kit = createEditorTestKit();
+    const design = structuredClone(kit.designStore.getState().design);
+    const title = design.pages[0].elements.find((element) => element.id === 'title');
+    if (!title || title.type !== 'text') throw new Error('title 텍스트가 없습니다.');
+    title.fontFamily = 'LegacyRemoteFont';
+    kit.designStore.getState().replaceDesign(design);
+    kit.runtimeStore.getState().setSelectedElementIds(['title']);
+
+    render(<ContextualToolbar />, { wrapper: kit.wrapper });
+
+    expect(screen.getByRole('combobox', { name: '글꼴' })).toHaveValue('system-ui');
+    expect(document.querySelector('link[rel="stylesheet"], style')).toBeNull();
   });
 
   it('텍스트 동작 실패는 중앙 toast로 알리고 성공하면 이전 오류를 지운다', async () => {

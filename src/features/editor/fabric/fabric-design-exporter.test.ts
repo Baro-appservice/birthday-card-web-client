@@ -1,4 +1,5 @@
 import type { Design } from '@/entities/design';
+import { Rect } from 'fabric';
 import { describe, expect, it, vi } from 'vitest';
 
 const fabricState = vi.hoisted(() => ({ staticCanvases: [] as any[], nextBlob: undefined as Blob | null | undefined, nextError: undefined as Error | undefined }));
@@ -22,6 +23,7 @@ vi.mock('fabric', async (importOriginal) => {
 });
 
 import { FabricDesignExporter } from './fabric-design-exporter';
+import { getElementId } from './fabric-object-metadata';
 
 const design: Design = {
   version: 1, width: 1080, height: 1350,
@@ -44,6 +46,30 @@ describe('FabricDesignExporter', () => {
     expect(canvas.toBlob).toHaveBeenCalledWith({ format: 'png', multiplier: 1, enableRetinaScaling: false });
     expect(blob.type).toBe('image/png');
     expect(canvas.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('깨진 이미지가 있어도 placeholder와 정상 요소를 함께 PNG에 렌더한다', async () => {
+    const partialDesign: Design = {
+      ...design,
+      pages: [{
+        ...design.pages[0],
+        elements: [
+          ...design.pages[0].elements,
+          { id: 'broken-image', type: 'image', assetId: 'missing', x: 10, y: 120, width: 200, height: 150, rotation: 9, opacity: 1 },
+        ],
+      }],
+    };
+    const exporter = new FabricDesignExporter({
+      resolveUrl: vi.fn().mockRejectedValue(new Error('missing asset')),
+    });
+
+    await expect(exporter.exportPng(partialDesign, { width: 1080, height: 1350 }))
+      .resolves.toBeInstanceOf(Blob);
+
+    const canvas = fabricState.staticCanvases.at(-1);
+    const objects = canvas.add.mock.calls[0];
+    expect(objects.map(getElementId)).toEqual(['title', 'broken-image']);
+    expect(objects[1]).toBeInstanceOf(Rect);
   });
 
   it.each([
