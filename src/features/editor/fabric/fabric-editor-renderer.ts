@@ -63,10 +63,8 @@ function patchObject(object: FabricObject, element: DesignElement): void {
       scaleX: 1,
       scaleY: 1,
     });
-    object.set({
-      scaleX: element.width / positiveOr(object.width, element.width),
-      scaleY: element.height / positiveOr(object.height, element.height),
-    });
+    object.initDimensions();
+    object.setControlsVisibility({ mt: false, mb: false });
   } else if (element.type === 'shape' && element.shape === 'rectangle' && object instanceof Rect) {
     object.set({
       width: element.width,
