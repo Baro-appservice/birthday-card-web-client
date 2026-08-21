@@ -9,6 +9,7 @@ export function ShapePanel() {
   const addShape = async (shape: 'rectangle' | 'circle') => {
     try {
       await editor.addShape(shape);
+      setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : '도형을 추가하지 못했습니다. 다시 시도해 주세요.');
     }

@@ -1,7 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-
 import type { DesignElement, TextElement } from '@/entities/design';
 import { Button } from '@/shared/ui/button';
 import { ColorInput } from '@/shared/ui/color-input';
@@ -13,6 +11,7 @@ function SelectionControls() {
   const run = async (action: () => Promise<void>, fallback: string) => {
     try {
       await action();
+      setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : fallback);
     }
@@ -34,6 +33,7 @@ function TextControls({ selected }: { selected: Extract<DesignElement, { type: '
     'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>) => {
     try {
       await editor.updateSelection({ type: 'text', changes });
+      setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : '텍스트 서식을 바꾸지 못했습니다. 다시 시도해 주세요.');
     }
@@ -58,31 +58,24 @@ function TextControls({ selected }: { selected: Extract<DesignElement, { type: '
 function ImageControls() {
   const editor = useEditor();
   const setError = useEditorUiStore((state) => state.setError);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const replace = async (file: File | undefined) => {
     if (!file) return;
     try {
       await editor.replaceSelectedImage(file);
-      setUploadError(null);
+      setError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : '사진을 교체하지 못했습니다. PNG, JPEG, WebP 파일인지 확인해 주세요.';
-      setUploadError(message);
       setError(message);
     }
   };
-  return (
-    <div className="contents">
-      <label className="inline-flex min-h-9 cursor-pointer items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--surface-muted)] focus-within:ring-2 focus-within:ring-[var(--brand)]"><span>사진 교체</span><input aria-label="교체할 사진 파일 선택" type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => void replace(event.target.files?.[0])} /></label>
-      {uploadError ? <p role="alert" className="basis-full text-xs text-[var(--danger)]">{uploadError}</p> : null}
-    </div>
-  );
+  return <label className="inline-flex min-h-9 cursor-pointer items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--surface-muted)] focus-within:ring-2 focus-within:ring-[var(--brand)]"><span>사진 교체</span><input aria-label="교체할 사진 파일 선택" type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => void replace(event.target.files?.[0])} /></label>;
 }
 
 function ShapeControls({ selected }: { selected: Extract<DesignElement, { type: 'shape' }> }) {
   const editor = useEditor();
   const setError = useEditorUiStore((state) => state.setError);
   const update = async (fill: string) => {
-    try { await editor.updateSelection({ type: 'shape', changes: { fill } }); } catch (error) { setError(error instanceof Error ? error.message : '도형 색을 바꾸지 못했습니다. 다시 시도해 주세요.'); }
+    try { await editor.updateSelection({ type: 'shape', changes: { fill } }); setError(null); } catch (error) { setError(error instanceof Error ? error.message : '도형 색을 바꾸지 못했습니다. 다시 시도해 주세요.'); }
   };
   return <ColorInput label="채우기" value={selected.fill} onChange={(color) => void update(color)} />;
 }

@@ -9,6 +9,7 @@ export function TextPanel() {
   const addText = async () => {
     try {
       await editor.addText();
+      setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : '텍스트를 추가하지 못했습니다. 다시 시도해 주세요.');
     }

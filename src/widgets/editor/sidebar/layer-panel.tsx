@@ -1,7 +1,7 @@
 'use client';
 
 import type { DesignElement } from '@/entities/design';
-import { useDesignStore, useEditorRuntimeStore } from '@/features/editor/hooks/use-editor';
+import { useDesignStore, useEditor, useEditorRuntimeStore, useEditorUiStore } from '@/features/editor/hooks/use-editor';
 
 function layerName(element: DesignElement): string {
   if (element.type === 'text') return element.text;
@@ -10,9 +10,18 @@ function layerName(element: DesignElement): string {
 }
 
 export function LayerPanel() {
+  const editor = useEditor();
   const page = useDesignStore((state) => state.design.pages[0]);
   const selectedElementIds = useEditorRuntimeStore((state) => state.selectedElementIds);
-  const setSelectedElementIds = useEditorRuntimeStore((state) => state.setSelectedElementIds);
+  const setError = useEditorUiStore((state) => state.setError);
+  const selectElement = async (elementId: string) => {
+    try {
+      await editor.selectElement(elementId);
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '레이어를 선택하지 못했습니다. 다시 시도해 주세요.');
+    }
+  };
   return (
     <section aria-label="레이어 도구" className="space-y-4">
       <div>
@@ -29,7 +38,7 @@ export function LayerPanel() {
                 type="button"
                 aria-label={`${name} 레이어 선택`}
                 aria-pressed={selected}
-                onClick={() => setSelectedElementIds([element.id])}
+                onClick={() => void selectElement(element.id)}
                 className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] ${selected ? 'bg-[var(--brand-soft)] text-[var(--brand-strong)]' : 'text-[var(--ink)] hover:bg-[var(--surface-muted)]'}`}
               >
                 <span aria-hidden="true" className="text-[var(--ink-muted)]">{element.type === 'text' ? 'T' : element.type === 'image' ? '▧' : '●'}</span>

@@ -53,6 +53,7 @@ export interface EditorApi {
   undo(): Promise<void>;
   redo(): Promise<void>;
   setZoom(zoom: number): void;
+  selectElement(elementId: string): Promise<void>;
   setBackground(color: string): Promise<void>;
   exportPng(): Promise<Blob>;
 }
@@ -266,6 +267,32 @@ export class Editor implements EditorApi {
   setZoom(zoom: number): void {
     this.assertActive();
     this.dependencies.runtimeStore.getState().setZoom(zoom);
+  }
+
+  async selectElement(elementId: string): Promise<void> {
+    return this.enqueue(async () => {
+      const generation = this.activeGeneration();
+      if (!this.findElement(elementId)) return;
+      const previousSelection = [...this.selectedElementIds];
+      try {
+        this.dependencies.runtimeStore.getState().setSelectedElementIds([elementId]);
+        this.dependencies.renderer.select([elementId]);
+        this.assertGeneration(generation);
+      } catch (error) {
+        this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
+        if (this.isActiveGeneration(generation)) {
+          try {
+            this.dependencies.renderer.select(previousSelection);
+            this.assertGeneration(generation);
+          } catch {
+            if (this.isActiveGeneration(generation)) {
+              this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+            }
+          }
+        }
+        throw error;
+      }
+    });
   }
 
   async setBackground(color: string): Promise<void> {

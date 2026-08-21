@@ -32,6 +32,7 @@ export function EditorSidebar() {
   const changeBackground = async (color: string) => {
     try {
       await editor.setBackground(color);
+      setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : '카드 배경색을 바꾸지 못했습니다. 다시 시도해 주세요.');
     }

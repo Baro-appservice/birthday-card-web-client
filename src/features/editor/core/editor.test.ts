@@ -55,6 +55,27 @@ const selectedElement = (design: Design, id: string) =>
   design.pages[0].elements.find((element) => element.id === id);
 
 describe('Editor', () => {
+  it('레이어 선택은 renderer와 runtime selection을 함께 동기화한다', async () => {
+    const kit = createEditorTestKit();
+
+    await (kit.editor as Editor & { selectElement(elementId: string): Promise<void> }).selectElement('title');
+
+    expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['title']);
+    expect(kit.renderer.select).toHaveBeenCalledWith(['title']);
+  });
+
+  it('레이어 선택 renderer 실패는 이전 runtime selection으로 되돌리고 오류를 반환한다', async () => {
+    const kit = createEditorTestKit();
+    kit.runtimeStore.getState().setSelectedElementIds(['name']);
+    vi.mocked(kit.renderer.select).mockImplementationOnce(() => { throw new Error('select failed'); });
+
+    await expect((kit.editor as Editor & { selectElement(elementId: string): Promise<void> }).selectElement('title'))
+      .rejects.toThrow('select failed');
+
+    expect(kit.runtimeStore.getState().selectedElementIds).toEqual(['name']);
+    expect(kit.renderer.select).toHaveBeenLastCalledWith(['name']);
+  });
+
   it('문서 명령 뒤 render를 완료한 뒤 변경 콜백을 호출한다', async () => {
     const kit = createEditorTestKit();
     const calls: string[] = [];

@@ -4,6 +4,7 @@ import { EditorProvider } from '@/features/editor/context/editor-provider';
 import { useEditor, useEditorRuntimeStore } from '@/features/editor/hooks/use-editor';
 import { useEditorSession } from '@/features/editor/hooks/use-editor-session';
 import { IconButton } from '@/shared/ui/icon-button';
+import { Toast } from '@/shared/ui/toast';
 
 import { EditorCanvas } from './canvas/editor-canvas';
 import { EditorSidebar } from './sidebar/editor-sidebar';
@@ -49,6 +50,7 @@ function EditorSessionScreen({ cardId }: { cardId: string }) {
         <EditorSidebar />
         <EditorWorkspace />
       </div>
+      <Toast />
     </main>
   );
 }

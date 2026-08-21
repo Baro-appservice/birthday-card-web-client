@@ -18,6 +18,7 @@ export function EditorTopbar() {
   const run = async (action: () => Promise<void>, fallback: string) => {
     try {
       await action();
+      setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : fallback);
     }
@@ -31,6 +32,7 @@ export function EditorTopbar() {
       link.download = 'my-birthday-card.png';
       link.click();
       URL.revokeObjectURL(url);
+      setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'PNG를 저장하지 못했습니다. 다시 시도해 주세요.');
     }
@@ -41,11 +43,8 @@ export function EditorTopbar() {
       <div className="flex items-center gap-3">
         <span aria-hidden="true" className="grid size-8 place-items-center rounded-lg bg-[var(--brand)] font-[ui-rounded,Arial_Rounded_MT_Bold,system-ui] text-sm text-white">B</span>
         <h1 className="font-[ui-rounded,Arial_Rounded_MT_Bold,system-ui] text-base tracking-tight text-[var(--ink)]">Birthday canvas</h1>
-        {saveStatus === 'error' ? (
-          <button type="button" onClick={() => void run(() => saveCoordinator.retry(), '저장을 다시 시도하지 못했습니다.')} className="hidden border-l border-[var(--border)] pl-3 font-mono text-xs text-[var(--danger)] underline decoration-dotted underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] sm:inline">{saveLabels[saveStatus]}</button>
-        ) : (
-          <span className={`hidden border-l border-[var(--border)] pl-3 font-mono text-xs sm:inline ${saveStatus === 'saving' ? 'text-[var(--ink-muted)]' : 'text-[var(--success)]'}`}>{saveLabels[saveStatus]}</span>
-        )}
+        <span role="status" aria-live="polite" aria-atomic="true" className={`border-l border-[var(--border)] pl-3 font-mono text-xs ${saveStatus === 'error' ? 'text-[var(--danger)]' : saveStatus === 'saving' ? 'text-[var(--ink-muted)]' : 'text-[var(--success)]'}`}>{saveLabels[saveStatus]}</span>
+        {saveStatus === 'error' ? <button type="button" onClick={() => void run(() => saveCoordinator.retry(), '저장을 다시 시도하지 못했습니다.')} className="text-xs font-semibold text-[var(--danger)] underline decoration-dotted underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]">다시 시도</button> : null}
       </div>
       <div className="flex items-center gap-1">
         <IconButton aria-label="실행 취소" onClick={() => void run(() => editor.undo(), '실행을 취소하지 못했습니다.')}>↶</IconButton>
