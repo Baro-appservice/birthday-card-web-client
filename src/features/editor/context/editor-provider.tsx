@@ -93,7 +93,8 @@ async function disposeEditorAssembly(assembly: EditorAssembly): Promise<void> {
   // save failed, the emergency snapshot and in-memory history remain protected.
   await runCleanupStep(() => assembly.value.editor.flushMaintenance());
   await runCleanupStep(() => assembly.value.saveCoordinator.dispose());
-  await runCleanupStep(() => assembly.value.editor.dispose());
+  // Await Fabric Canvas.dispose() before revoking asset URLs and closing IndexedDB.
+  await runCleanupStep(() => assembly.value.editor.close());
   await runCleanupStep(() => assembly.disposeAssetGateway());
   await runCleanupStep(() => assembly.closeDatabase());
 }
