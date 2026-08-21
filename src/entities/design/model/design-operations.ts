@@ -8,6 +8,9 @@ function findElementIndex(page: DesignPage, elementId: string): number {
 }
 
 export function addElement(page: DesignPage, element: DesignElement): DesignPage {
+  if (page.elements.some((candidate) => candidate.id === element.id)) {
+    throw new Error(`이미 존재하는 요소 ID입니다: ${element.id}`);
+  }
   return { ...page, elements: [...page.elements, element] };
 }
 
@@ -17,6 +20,9 @@ export function replaceElement(
   replacement: DesignElement,
 ): DesignPage {
   const index = findElementIndex(page, elementId);
+  if (replacement.id !== elementId && page.elements.some((element) => element.id === replacement.id)) {
+    throw new Error(`이미 존재하는 요소 ID입니다: ${replacement.id}`);
+  }
   const elements = page.elements.slice();
   elements[index] = replacement;
   return { ...page, elements };
