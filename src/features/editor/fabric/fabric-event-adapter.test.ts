@@ -1,3 +1,4 @@
+import type { EditorEvent } from '@/features/editor/core/ports';
 import { ActiveSelection, FabricObject, Textbox, type Canvas } from 'fabric';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -101,7 +102,7 @@ describe('FabricEventAdapter', () => {
     adapter.dispose();
   });
 
-  it('이전 클릭 snapshot이 남아 있어도 실제 transform 시작 시 최신 값으로 덮어쓴다', () => {
+  it('실제 transform 시작 시점의 최신 값을 before snapshot으로 사용한다', () => {
     const canvas = createCanvas();
     const received: unknown[] = [];
     const adapter = new FabricEventAdapter(canvas as unknown as Canvas, (event) => received.push(event));
@@ -194,7 +195,7 @@ describe('FabricEventAdapter', () => {
 
   it('Canvas 텍스트 편집 중 변경을 즉시 전달하고 같은 세션 history group을 유지한다', () => {
     const canvas = createCanvas();
-    const received: Array<Extract<Parameters<ConstructorParameters<typeof FabricEventAdapter>[1]>[0], { type: 'text:edited' }>> = [];
+    const received: Array<Extract<EditorEvent, { type: 'text:edited' }>> = [];
     const adapter = new FabricEventAdapter(canvas as unknown as Canvas, (event) => {
       if (event.type === 'text:edited') received.push(event);
     });
