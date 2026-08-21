@@ -1,12 +1,12 @@
-import type { Design, TransformSnapshot } from '@/entities/design';
+import type { Design, ElementTransformSnapshot } from '@/entities/design';
 
 export type EditorEvent =
   | { type: 'selection:changed'; elementIds: string[] }
   | {
       type: 'element:transformed';
       elementId: string;
-      before: TransformSnapshot;
-      after: TransformSnapshot;
+      before: ElementTransformSnapshot;
+      after: ElementTransformSnapshot;
     }
   | { type: 'text:edited'; elementId: string; before: string; after: string };
 
