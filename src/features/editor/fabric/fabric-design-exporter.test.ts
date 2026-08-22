@@ -24,7 +24,7 @@ vi.mock('fabric', async (importOriginal) => {
 import { FabricDesignExporter } from './fabric-design-exporter';
 
 const design: Design = {
-  version: 1, width: 1080, height: 1350,
+  version: 3, width: 1080, height: 1350,
   pages: [{
     id: 'page-1', background: '#fff', elements: [{
       id: 'title', type: 'text', text: '생일', x: 10, y: 20, width: 300, height: 80, rotation: 0, opacity: 1,
@@ -53,7 +53,20 @@ describe('FabricDesignExporter', () => {
         ...design.pages[0],
         elements: [
           ...design.pages[0].elements,
-          { id: 'broken-image', type: 'image', assetId: 'missing', x: 10, y: 120, width: 200, height: 150, rotation: 9, opacity: 1 },
+          {
+            id: 'broken-image',
+            type: 'image',
+            assetId: 'missing',
+            x: 10,
+            y: 120,
+            width: 200,
+            height: 150,
+            rotation: 9,
+            opacity: 1,
+            cropZoom: 1,
+            cropX: 0,
+            cropY: 0,
+          },
         ],
       }],
     };
