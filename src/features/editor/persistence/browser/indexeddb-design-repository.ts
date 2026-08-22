@@ -18,12 +18,18 @@ export interface DesignRecord {
   updatedAt: number;
 }
 
+type ProcessingError = { value: unknown } | null;
+
 function cloneDesign(design: Design): Design {
   return structuredClone(design);
 }
 
 function validTimestamp(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function throwProcessingError(processingError: ProcessingError): void {
+  if (processingError) throw processingError.value;
 }
 
 export class IndexedDbDesignRepository implements DesignRepository {
@@ -73,7 +79,7 @@ export class IndexedDbDesignRepository implements DesignRepository {
     }
 
     const store = transaction.objectStore(DESIGN_RECORDS_STORE);
-    let processingError: { value: unknown } | null = null;
+    let processingError: ProcessingError = null;
     const request = store.get(cardId);
 
     // Safari/WebKit may auto-commit an IndexedDB transaction as soon as the
@@ -103,9 +109,9 @@ export class IndexedDbDesignRepository implements DesignRepository {
     try {
       await transactionDone(transaction);
     } catch (error) {
-      if (processingError) throw processingError.value;
+      throwProcessingError(processingError);
       throw error;
     }
-    if (processingError) throw processingError.value;
+    throwProcessingError(processingError);
   }
 }
