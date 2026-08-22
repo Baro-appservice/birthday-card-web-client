@@ -109,6 +109,9 @@ describe('FabricEditorRenderer object disposal', () => {
           height: 100,
           rotation: 0,
           opacity: 1,
+          cropZoom: 1,
+          cropFocusX: 0,
+          cropFocusY: 0,
         }],
       }],
     };
