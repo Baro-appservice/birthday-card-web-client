@@ -44,7 +44,9 @@ test('선택 요소를 정렬·회전·투명도 편집·복제하고 Undo한다
   const opacity = page.getByRole('slider', { name: '투명도' });
   await opacity.evaluate((element) => {
     const input = element as HTMLInputElement;
-    input.value = '60';
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    if (!valueSetter) throw new Error('range value setter를 찾을 수 없습니다.');
+    valueSetter.call(input, '60');
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
