@@ -79,7 +79,7 @@ function closestSnap(
 }
 
 function guideLine(axis: Axis, value: number, canvas: Canvas): Line {
-  const points = axis === 'x'
+  const points: [number, number, number, number] = axis === 'x'
     ? [value, 0, value, canvas.getHeight()]
     : [0, value, canvas.getWidth(), value];
   return new Line(points, {
