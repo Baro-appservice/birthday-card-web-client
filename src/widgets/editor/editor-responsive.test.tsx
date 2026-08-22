@@ -178,7 +178,11 @@ describe('EditorScreen responsive composition', () => {
     expect(screen.getByRole('button', { name: '앞으로' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '뒤로' })).toBeInTheDocument();
     for (const control of sheet.querySelectorAll('button, select, input:not([type="file"])')) {
-      expect(control).toHaveClass('property-touch-target');
+      if (control instanceof HTMLInputElement && control.type === 'range') {
+        expect(control).toHaveClass('min-h-11');
+      } else {
+        expect(control).toHaveClass('property-touch-target');
+      }
     }
   });
 
