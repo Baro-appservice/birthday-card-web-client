@@ -50,14 +50,14 @@ describe('CommonElementControls', () => {
 
     await waitFor(() => expect(selectedElement(kit)).toMatchObject({
       cropZoom: 2.2,
-      cropX: 0.7,
-      cropY: 0,
+      cropFocusX: 0.7,
+      cropFocusY: 0,
     }));
 
     await kit.editor.undo();
-    expect(selectedElement(kit)).toMatchObject({ cropZoom: 2.2, cropX: 0, cropY: 0 });
+    expect(selectedElement(kit)).toMatchObject({ cropZoom: 2.2, cropFocusX: 0, cropFocusY: 0 });
     await kit.editor.undo();
-    expect(selectedElement(kit)).toMatchObject({ cropZoom: 1, cropX: 0, cropY: 0 });
+    expect(selectedElement(kit)).toMatchObject({ cropZoom: 1, cropFocusX: 0, cropFocusY: 0 });
 
     fireEvent.change(zoom, { target: { value: '180' } });
     fireEvent.blur(zoom);
@@ -65,8 +65,8 @@ describe('CommonElementControls', () => {
     fireEvent.click(view.getByRole('button', { name: '사진 위치 초기화' }));
     await waitFor(() => expect(selectedElement(kit)).toMatchObject({
       cropZoom: 1,
-      cropX: 0,
-      cropY: 0,
+      cropFocusX: 0,
+      cropFocusY: 0,
     }));
   });
 
