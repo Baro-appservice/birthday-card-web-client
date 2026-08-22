@@ -2,6 +2,7 @@ import {
   assertHexColor,
   assertTextFontSize,
   collectDesignAssetIds,
+  type BaseElement,
   type Design,
   type DesignElement,
   type ShapeElement,
@@ -10,6 +11,7 @@ import {
 import type {
   AssetGateway,
   DesignExporter,
+  EditorElementBounds,
   EditorEvent,
   EditorRenderer,
 } from '@/features/editor/core/ports';
@@ -25,6 +27,7 @@ import { UpdateElementCommand } from '../commands/update-element-command';
 import { EditorHistory } from './editor-history';
 
 const ASSET_GC_IDLE_MS = 2_000;
+const DUPLICATE_OFFSET = 32;
 
 export interface EditorDependencies {
   designStore: DesignStore;
@@ -36,13 +39,24 @@ export interface EditorDependencies {
   onDocumentChange: (design: Design) => void;
 }
 
+type CommonSelectionChanges = Partial<Pick<BaseElement, 'x' | 'y' | 'rotation' | 'opacity'>>;
+
 export type SelectionPatch =
+  | { type: 'common'; changes: CommonSelectionChanges }
   | {
       type: 'text';
       changes: Partial<Pick<TextElement,
         'text' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>;
     }
   | { type: 'shape'; changes: Partial<Pick<ShapeElement, 'fill'>> };
+
+export type CanvasAlignment =
+  | 'left'
+  | 'horizontal-center'
+  | 'right'
+  | 'top'
+  | 'vertical-center'
+  | 'bottom';
 
 export interface UpdateSelectionOptions {
   historyGroup?: string;
@@ -61,9 +75,13 @@ export interface EditorApi {
     text: string,
     options?: UpdateSelectionOptions,
   ): Promise<void>;
+  duplicateSelection(): Promise<void>;
   deleteSelection(): Promise<void>;
   bringForward(): Promise<void>;
   sendBackward(): Promise<void>;
+  bringToFront(): Promise<void>;
+  sendToBack(): Promise<void>;
+  alignSelection(alignment: CanvasAlignment): Promise<void>;
   undo(): Promise<void>;
   redo(): Promise<void>;
   setZoom(zoom: number): void;
@@ -115,6 +133,69 @@ function fitInside(width: number, height: number, maxWidth: number, maxHeight: n
 function hasActualChanges(element: DesignElement, changes: Partial<DesignElement>): boolean {
   const current = element as unknown as Record<string, unknown>;
   return Object.entries(changes).some(([key, value]) => current[key] !== value);
+}
+
+function assertFiniteProperty(name: string, value: number | undefined): void {
+  if (value !== undefined && !Number.isFinite(value)) {
+    throw new Error(`${name} 값은 유한한 숫자여야 합니다.`);
+  }
+}
+
+function assertCommonSelectionChanges(changes: CommonSelectionChanges): void {
+  assertFiniteProperty('가로 위치', changes.x);
+  assertFiniteProperty('세로 위치', changes.y);
+  assertFiniteProperty('회전', changes.rotation);
+  if (changes.opacity !== undefined
+    && (!Number.isFinite(changes.opacity) || changes.opacity < 0 || changes.opacity > 1)) {
+    throw new Error('투명도는 0에서 1 사이여야 합니다.');
+  }
+}
+
+function duplicateCoordinate(position: number, size: number, limit: number): number {
+  const max = Math.max(0, limit - Math.min(Math.abs(size), limit));
+  const current = Math.min(max, Math.max(0, position));
+  const forward = Math.min(max, current + DUPLICATE_OFFSET);
+  if (Math.abs(forward - current) >= 1) return forward;
+  return Math.max(0, current - DUPLICATE_OFFSET);
+}
+
+function fallbackBounds(element: DesignElement): EditorElementBounds {
+  return {
+    left: element.x,
+    top: element.y,
+    width: element.width,
+    height: element.height,
+  };
+}
+
+function usableBounds(bounds: EditorElementBounds | undefined): bounds is EditorElementBounds {
+  return Boolean(bounds
+    && Number.isFinite(bounds.left)
+    && Number.isFinite(bounds.top)
+    && Number.isFinite(bounds.width)
+    && Number.isFinite(bounds.height)
+    && bounds.width >= 0
+    && bounds.height >= 0);
+}
+
+function alignmentChange(
+  element: DesignElement,
+  bounds: EditorElementBounds,
+  design: Design,
+  alignment: CanvasAlignment,
+): CommonSelectionChanges {
+  if (alignment === 'left') return { x: element.x - bounds.left };
+  if (alignment === 'horizontal-center') {
+    return { x: element.x + design.width / 2 - (bounds.left + bounds.width / 2) };
+  }
+  if (alignment === 'right') {
+    return { x: element.x + design.width - (bounds.left + bounds.width) };
+  }
+  if (alignment === 'top') return { y: element.y - bounds.top };
+  if (alignment === 'vertical-center') {
+    return { y: element.y + design.height / 2 - (bounds.top + bounds.height / 2) };
+  }
+  return { y: element.y + design.height - (bounds.top + bounds.height) };
 }
 
 export class Editor implements EditorApi {
@@ -240,14 +321,20 @@ export class Editor implements EditorApi {
   ): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
-      if (patch.type === 'text') {
+      const selected = this.singleSelectedElement();
+      if (!selected) return;
+
+      if (patch.type === 'common') {
+        assertCommonSelectionChanges(patch.changes);
+      } else if (patch.type === 'text') {
+        if (selected.type !== 'text') return;
         if (patch.changes.fontSize !== undefined) assertTextFontSize(patch.changes.fontSize);
         if (patch.changes.color !== undefined) assertHexColor(patch.changes.color);
-      } else if (patch.changes.fill !== undefined) {
-        assertHexColor(patch.changes.fill);
+      } else {
+        if (selected.type !== 'shape') return;
+        if (patch.changes.fill !== undefined) assertHexColor(patch.changes.fill);
       }
-      const selected = this.singleSelectedElement();
-      if (!selected || selected.type !== patch.type) return;
+
       if (!hasActualChanges(selected, patch.changes as Partial<DesignElement>)) return;
       await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
         this.dependencies.designStore,
@@ -280,6 +367,31 @@ export class Editor implements EditorApi {
     });
   }
 
+  async duplicateSelection(): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      const selected = this.singleSelectedElement();
+      const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
+      if (!selected || !page) return;
+      const index = page.elements.findIndex((element) => element.id === selected.id);
+      if (index < 0) return;
+
+      const id = this.dependencies.idGenerator();
+      const duplicate = {
+        ...selected,
+        id,
+        x: duplicateCoordinate(selected.x, selected.width, this.design.width),
+        y: duplicateCoordinate(selected.y, selected.height, this.design.height),
+      } as DesignElement;
+      await this.applyDocumentMutation(() => this.history.execute(new AddElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        duplicate,
+        index + 1,
+      )), [id]);
+    });
+  }
+
   async deleteSelection(): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
@@ -299,6 +411,32 @@ export class Editor implements EditorApi {
 
   async sendBackward(): Promise<void> {
     await this.reorderSelection(-1);
+  }
+
+  async bringToFront(): Promise<void> {
+    await this.reorderSelectionToEdge('front');
+  }
+
+  async sendToBack(): Promise<void> {
+    await this.reorderSelectionToEdge('back');
+  }
+
+  async alignSelection(alignment: CanvasAlignment): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      const selected = this.singleSelectedElement();
+      if (!selected) return;
+      const measured = this.dependencies.renderer.measureElement?.(selected.id);
+      const bounds = usableBounds(measured) ? measured : fallbackBounds(selected);
+      const changes = alignmentChange(selected, bounds, this.design, alignment);
+      if (!hasActualChanges(selected, changes as Partial<DesignElement>)) return;
+      await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        selected.id,
+        changes as Partial<DesignElement>,
+      )));
+    });
   }
 
   async undo(): Promise<void> {
@@ -446,6 +584,25 @@ export class Editor implements EditorApi {
         this.pageId,
         selected.id,
         nextIndex,
+      )));
+    });
+  }
+
+  private async reorderSelectionToEdge(edge: 'front' | 'back'): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      const selected = this.singleSelectedElement();
+      const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
+      if (!selected || !page) return;
+      const currentIndex = page.elements.findIndex((element) => element.id === selected.id);
+      const targetIndex = edge === 'front' ? page.elements.length - 1 : 0;
+      if (currentIndex < 0 || currentIndex === targetIndex) return;
+
+      await this.applyDocumentMutation(() => this.history.execute(new ReorderElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        selected.id,
+        targetIndex,
       )));
     });
   }
