@@ -26,4 +26,18 @@ describe('ContextualToolbar text draft', () => {
     expect(kit.designStore.getState().design.pages[0].elements.find((element) => element.id === 'title'))
       .toMatchObject({ text: original });
   });
+
+  it('모바일·태블릿 property variant에서도 레이어 앞뒤 이동을 노출한다', () => {
+    const kit = createEditorTestKit();
+    kit.runtimeStore.getState().setSelectedElementIds(['title']);
+    const bringForward = vi.spyOn(kit.editor, 'bringForward').mockResolvedValue();
+    const sendBackward = vi.spyOn(kit.editor, 'sendBackward').mockResolvedValue();
+    const view = render(<ContextualToolbar variant="property" />, { wrapper: kit.wrapper });
+
+    fireEvent.click(view.getByRole('button', { name: '앞으로' }));
+    fireEvent.click(view.getByRole('button', { name: '뒤로' }));
+
+    expect(bringForward).toHaveBeenCalledOnce();
+    expect(sendBackward).toHaveBeenCalledOnce();
+  });
 });
