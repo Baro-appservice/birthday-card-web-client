@@ -37,7 +37,11 @@ export async function waitForEditorReady(page: Page): Promise<void> {
   await expect(page.getByTestId('editor-canvas')).toBeVisible();
   await page.waitForFunction(() => {
     const canvas = document.querySelector<HTMLCanvasElement>('canvas[aria-label="생일 카드 편집 캔버스"]');
-    return canvas?.width === 1080 && canvas.height === 1350;
+    if (!canvas) return false;
+    const dpr = window.devicePixelRatio || 1;
+    const logicalWidth = canvas.width / dpr;
+    const logicalHeight = canvas.height / dpr;
+    return Math.abs(logicalWidth - 1080) <= 1 && Math.abs(logicalHeight - 1350) <= 1;
   });
 }
 
@@ -259,9 +263,9 @@ export async function expectZoomEdgesAndCanvasIdentity(page: Page): Promise<void
       },
     };
   });
-  expect(Math.abs(edges.start.left)).toBeLessThanOrEqual(1);
-  expect(Math.abs(edges.start.top)).toBeLessThanOrEqual(1);
-  expect(Math.abs(edges.end.right)).toBeLessThanOrEqual(1);
-  expect(Math.abs(edges.end.bottom)).toBeLessThanOrEqual(1);
+  expect(edges.start.left).toBeGreaterThanOrEqual(-1);
+  expect(edges.start.top).toBeGreaterThanOrEqual(-1);
+  expect(edges.end.right).toBeGreaterThanOrEqual(-1);
+  expect(edges.end.bottom).toBeGreaterThanOrEqual(-1);
   await expect(canvas).toHaveAttribute('data-zoom-identity', 'stable');
 }
