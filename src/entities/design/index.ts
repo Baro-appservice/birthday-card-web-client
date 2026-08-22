@@ -33,10 +33,21 @@ export {
   designSchema,
   designV1Schema,
   designV2Schema,
+  designV3Schema,
   imageElementSchema,
   shapeElementSchema,
   textElementSchema,
 } from './model/design-schema';
+export {
+  IMAGE_CROP_FOCUS_MAX,
+  IMAGE_CROP_FOCUS_MIN,
+  IMAGE_CROP_ZOOM_MAX,
+  IMAGE_CROP_ZOOM_MIN,
+  assertImageCropFocus,
+  assertImageCropZoom,
+  clampImageCropFocus,
+  clampImageCropZoom,
+} from './model/image-crop-policy';
 export {
   type DesignMigrationResult,
   migratePersistedDesign,
