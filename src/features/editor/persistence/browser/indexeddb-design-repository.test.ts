@@ -81,7 +81,7 @@ describe('IndexedDbDesignRepository', () => {
     if (result.status !== 'loaded') throw new Error('v1 current를 불러오지 못했습니다.');
     expect(result.design.version).toBe(3);
     expect(result.design.pages[0].elements.find((element) => element.id === 'photo'))
-      .toMatchObject({ cropZoom: 1, cropX: 0, cropY: 0 });
+      .toMatchObject({ cropZoom: 1, cropFocusX: 0, cropFocusY: 0 });
     expect(result.updatedAt).toEqual(expect.any(Number));
     await closeAndDelete(db);
   });
