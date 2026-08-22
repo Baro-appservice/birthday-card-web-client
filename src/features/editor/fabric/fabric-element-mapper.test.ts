@@ -117,7 +117,7 @@ describe('fabric element mapper', () => {
 
     const object = await elementToFabricObject({
       id: 'photo', type: 'image', assetId: 'asset-photo', x: 100, y: 200, width: 600, height: 500,
-      rotation: 0, opacity: 1, cropZoom: 1, cropX: 0, cropY: 0,
+      rotation: 0, opacity: 1, cropZoom: 1, cropFocusX: 0, cropFocusY: 0,
     }, assetGateway);
 
     expect(assetGateway.resolveUrl).toHaveBeenLastCalledWith('asset-photo');
@@ -152,8 +152,8 @@ describe('fabric element mapper', () => {
       rotation: 0,
       opacity: 1,
       cropZoom: 2,
-      cropX: 1,
-      cropY: -1,
+      cropFocusX: 1,
+      cropFocusY: -1,
     });
 
     expect(image).toMatchObject({
@@ -176,7 +176,7 @@ describe('fabric element mapper', () => {
       const object = await elementToFabricObject({
         id: 'broken-photo', type: 'image', assetId: 'asset-broken', x: 101, y: 202,
         width: 303, height: 404, rotation: 17, opacity: 0.6,
-        cropZoom: 1, cropX: 0, cropY: 0,
+        cropZoom: 1, cropFocusX: 0, cropFocusY: 0,
       }, gateway);
 
       expect(object).toBeInstanceOf(Rect);
