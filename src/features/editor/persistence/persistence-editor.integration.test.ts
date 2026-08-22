@@ -67,8 +67,8 @@ describe('persistence와 Editor 통합', () => {
       width: 640,
       height: 480,
       cropZoom: 1,
-      cropX: 0,
-      cropY: 0,
+      cropFocusX: 0,
+      cropFocusY: 0,
     });
     expect(designSchema.safeParse(saved).success).toBe(true);
     await expect(repository.load('local-demo')).resolves.toEqual({ status: 'loaded', design: saved });
