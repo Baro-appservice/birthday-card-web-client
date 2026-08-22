@@ -96,9 +96,6 @@ function createTextControls() {
   const scaleControls = controlsUtils.createObjectDefaultControls();
   return {
     ...textControls,
-    // Keep Textbox's ml/mr width controls, but explicitly use the normal
-    // uniform object-scale controls on corners. Those transient scales are
-    // normalized into width + fontSize by TransformElementCommand.
     tl: scaleControls.tl,
     tr: scaleControls.tr,
     bl: scaleControls.bl,
@@ -158,8 +155,8 @@ export function applyImageCrop(image: FabricImage, element: ImageElement): void 
   const zoom = clampImageCropZoom(element.cropZoom ?? 1);
   const cropWidth = coverWidth / zoom;
   const cropHeight = coverHeight / zoom;
-  const focusX = (clampImageCropFocus(element.cropX ?? 0) + 1) / 2;
-  const focusY = (clampImageCropFocus(element.cropY ?? 0) + 1) / 2;
+  const focusX = (clampImageCropFocus(element.cropFocusX ?? 0) + 1) / 2;
+  const focusY = (clampImageCropFocus(element.cropFocusY ?? 0) + 1) / 2;
   const cropX = (sourceWidth - cropWidth) * focusX;
   const cropY = (sourceHeight - cropHeight) * focusY;
 
