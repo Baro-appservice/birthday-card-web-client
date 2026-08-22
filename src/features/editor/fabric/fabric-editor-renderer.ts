@@ -1,5 +1,10 @@
 import type { Design, DesignElement } from '@/entities/design';
-import type { AssetGateway, EditorEvent, EditorRenderer } from '@/features/editor/core/ports';
+import type {
+  AssetGateway,
+  EditorElementBounds,
+  EditorEvent,
+  EditorRenderer,
+} from '@/features/editor/core/ports';
 import { Canvas, Ellipse, FabricImage, Rect, Textbox, type FabricObject } from 'fabric';
 
 import { FabricEventAdapter } from './fabric-event-adapter';
@@ -300,6 +305,21 @@ export class FabricEditorRenderer implements EditorRenderer {
     if (this.eventAdapter) this.eventAdapter.runWithoutSelectionEvents(changeSelection);
     else changeSelection();
     canvas.requestRenderAll();
+  }
+
+  measureElement(elementId: string): EditorElementBounds | undefined {
+    const canvas = this.requireCanvas();
+    const object = this.objectsById.get(elementId)
+      ?? canvas.getObjects().find((candidate) => getElementId(candidate) === elementId);
+    if (!object) return undefined;
+    object.setCoords();
+    const bounds = object.getBoundingRect();
+    return {
+      left: bounds.left,
+      top: bounds.top,
+      width: bounds.width,
+      height: bounds.height,
+    };
   }
 
   subscribe(listener: (event: EditorEvent) => void): () => void {
