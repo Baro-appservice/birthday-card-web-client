@@ -20,6 +20,8 @@ const MAX_IMAGE_PIXELS = 32_000_000;
 const MAX_ID_GENERATION_ATTEMPTS = 3;
 const ASSET_GC_GRACE_MS = 5 * 60 * 1_000;
 
+type ProcessingError = { value: unknown } | null;
+
 export interface AssetDimensions {
   width: number;
   height: number;
@@ -114,6 +116,10 @@ async function decodeImageDimensions(file: Blob): Promise<AssetDimensions> {
 function isConstraintError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'name' in error
     && error.name === 'ConstraintError';
+}
+
+function throwProcessingError(processingError: ProcessingError): void {
+  if (processingError) throw processingError.value;
 }
 
 function collectEmergencyAssetIds(target: Set<string>): void {
@@ -244,7 +250,7 @@ export class BrowserAssetGateway implements AssetGateway {
     const deleted: string[] = [];
     let records: RawDesignRecord[] | null = null;
     let assets: AssetRecord[] | null = null;
-    let processingError: { value: unknown } | null = null;
+    let processingError: ProcessingError = null;
     let deletesQueued = false;
 
     const abortWith = (error: unknown) => {
@@ -296,10 +302,10 @@ export class BrowserAssetGateway implements AssetGateway {
     try {
       await transactionDone(transaction);
     } catch (error) {
-      if (processingError) throw processingError.value;
+      throwProcessingError(processingError);
       throw error;
     }
-    if (processingError) throw processingError.value;
+    throwProcessingError(processingError);
 
     for (const assetId of deleted) {
       this.removedAssetIds.add(assetId);
@@ -360,7 +366,7 @@ export class BrowserAssetGateway implements AssetGateway {
     const store = transaction.objectStore(ASSET_RECORDS_STORE);
     const request = store.get(assetId);
     let missing = false;
-    let processingError: { value: unknown } | null = null;
+    let processingError: ProcessingError = null;
 
     request.onsuccess = () => {
       if (!request.result) {
@@ -380,11 +386,11 @@ export class BrowserAssetGateway implements AssetGateway {
       await transactionDone(transaction);
     } catch (error) {
       if (missing) throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
-      if (processingError) throw processingError.value;
+      throwProcessingError(processingError);
       throw error;
     }
     if (missing) throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
-    if (processingError) throw processingError.value;
+    throwProcessingError(processingError);
 
     this.removedAssetIds.add(assetId);
     this.revoke(assetId);
