@@ -44,7 +44,7 @@ describe('useEditorSession future-version safety', () => {
     const cardId = 'future-emergency';
     const loaded = createSampleDesign();
     loaded.pages[0].background = '#654321';
-    const future = { ...createSampleDesign(), version: 3 };
+    const future = { ...createSampleDesign(), version: 4 };
     const rawEmergency = JSON.stringify({ design: future, updatedAt: Date.now() + 10_000 });
     localStorage.setItem(emergencyKey(cardId), rawEmergency);
     const kit = createEditorTestKit({
