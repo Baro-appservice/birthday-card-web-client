@@ -263,13 +263,29 @@ function MobileActionSheet() {
 }
 
 function ResponsiveSelectionSheet() {
-  const editor = useEditor();
   const selectedElementIds = useEditorRuntimeStore((state) => state.selectedElementIds);
   const selectedId = selectedElementIds.length === 1 ? selectedElementIds[0] : null;
 
   if (!selectedId) return null;
+  return <ResponsiveSelectionInspector key={selectedId} />;
+}
+
+function ResponsiveSelectionInspector() {
+  const [open, setOpen] = useState(true);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        aria-label="선택한 요소 속성 열기"
+        onClick={() => setOpen(true)}
+        className="fixed bottom-20 right-4 z-30 min-h-11 min-w-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--ink)] shadow-[var(--shadow-float)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] md:bottom-4"
+      >속성</button>
+    );
+  }
+
   return (
-    <PropertySheet title="선택한 요소 편집" onClose={() => void editor.clearSelection()}>
+    <PropertySheet title="선택한 요소 편집" onClose={() => setOpen(false)}>
       <ContextualToolbar variant="property" />
     </PropertySheet>
   );
