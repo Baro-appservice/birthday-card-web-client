@@ -27,8 +27,17 @@ function asV2(design: ReturnType<typeof createSampleDesign>) {
       ...structuredClone(page),
       elements: page.elements.map((element) => {
         if (element.type !== 'image') return structuredClone(element);
-        const { cropZoom: _cropZoom, cropX: _cropX, cropY: _cropY, ...v2Image } = element;
-        return v2Image;
+        return {
+          id: element.id,
+          type: element.type,
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+          rotation: element.rotation,
+          opacity: element.opacity,
+          assetId: element.assetId,
+        };
       }),
     })),
   };
@@ -61,7 +70,7 @@ describe('Design migration pipeline', () => {
     if (result.status !== 'ok') throw new Error('v2 migration 결과가 없습니다.');
     expect(result.design.version).toBe(3);
     expect(result.design.pages[0].elements.find((element) => element.id === 'photo'))
-      .toMatchObject({ cropZoom: 1, cropX: 0, cropY: 0 });
+      .toMatchObject({ cropZoom: 1, cropFocusX: 0, cropFocusY: 0 });
   });
 
   it('실제 v1 문서를 v1→v2→v3 순서로 migration한다', () => {
@@ -151,14 +160,14 @@ describe('Design migration pipeline', () => {
     const photo = design.pages[0].elements.find((element) => element.id === 'photo');
     if (!photo || photo.type !== 'image') throw new Error('photo 이미지가 없습니다.');
     photo.cropZoom = 9;
-    photo.cropX = -4;
-    photo.cropY = 5;
+    photo.cropFocusX = -4;
+    photo.cropFocusY = 5;
 
     const normalized = normalizeDesign(design);
 
     expect(normalized.changed).toBe(true);
     expect(normalized.design.pages[0].elements.find((element) => element.id === 'photo'))
-      .toMatchObject({ cropZoom: 3, cropX: -1, cropY: 1 });
+      .toMatchObject({ cropZoom: 3, cropFocusX: -1, cropFocusY: 1 });
   });
 
   it('legacy 비정원 circle은 회전된 시각 중심을 유지하며 정원으로 normalize한다', () => {
