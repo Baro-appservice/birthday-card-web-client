@@ -15,7 +15,8 @@ describe('ContextualToolbar text draft', () => {
     const view = render(<ContextualToolbar />, { wrapper: kit.wrapper });
     const input = view.getByRole('textbox', { name: '선택한 텍스트 내용' });
 
-    fireEvent.focus(input);
+    input.focus();
+    expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: failedDraft } });
     expect(input).toHaveValue(failedDraft);
 
