@@ -154,7 +154,20 @@ describe('FabricEditorRenderer', () => {
         background: '#fff',
         elements: [
           { id: 'kept-text', type: 'text', text: 'kept', x: 0, y: 0, width: 100, height: 50, rotation: 0, opacity: 1, fontFamily: 'system-ui', fontSize: 20, fontWeight: 400, color: '#000', textAlign: 'left' },
-          { id: 'broken-image', type: 'image', assetId: 'broken', x: 10, y: 70, width: 100, height: 100, rotation: 0, opacity: 1 },
+          {
+            id: 'broken-image',
+            type: 'image',
+            assetId: 'broken',
+            x: 10,
+            y: 70,
+            width: 100,
+            height: 100,
+            rotation: 0,
+            opacity: 1,
+            cropZoom: 1,
+            cropFocusX: 0,
+            cropFocusY: 0,
+          },
           { id: 'kept-shape', type: 'shape', shape: 'rectangle', x: 10, y: 200, width: 100, height: 50, rotation: 0, opacity: 1, fill: '#fff' },
         ],
       }],
@@ -175,7 +188,27 @@ describe('FabricEditorRenderer', () => {
     let resolveImage: ((image: FabricImage) => void) | undefined;
     const image = new FabricImage(document.createElement('img'), { width: 100, height: 100 });
     vi.spyOn(FabricImage, 'fromURL').mockImplementationOnce(() => new Promise((resolve) => { resolveImage = resolve; }));
-    const imageDesign: Design = { ...createSampleDesign(), pages: [{ id: 'image-page', background: '#fff', elements: [{ id: 'old-image', type: 'image', assetId: 'old', x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1 }] }] };
+    const imageDesign: Design = {
+      ...createSampleDesign(),
+      pages: [{
+        id: 'image-page',
+        background: '#fff',
+        elements: [{
+          id: 'old-image',
+          type: 'image',
+          assetId: 'old',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+          cropZoom: 1,
+          cropFocusX: 0,
+          cropFocusY: 0,
+        }],
+      }],
+    };
     const latestDesign: Design = { ...imageDesign, pages: [{ id: 'latest-page', background: '#fff', elements: [{ id: 'latest-text', type: 'text', text: 'latest', x: 0, y: 0, width: 100, height: 50, rotation: 0, opacity: 1, fontFamily: 'Arial', fontSize: 20, fontWeight: 400, color: '#000', textAlign: 'left' }] }] };
 
     const stale = renderer.render(imageDesign);
