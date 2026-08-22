@@ -102,6 +102,26 @@ describe('FabricEventAdapter', () => {
     adapter.dispose();
   });
 
+  it('mouse down에서 drag 첫 delta 이전 transform을 보존한다', () => {
+    const canvas = createCanvas();
+    const received: unknown[] = [];
+    const adapter = new FabricEventAdapter(canvas as unknown as Canvas, (event) => received.push(event));
+    const title = element('title');
+
+    canvas.fire('mouse:down', { target: title });
+    title.set({ left: 25 });
+    title.set({ left: 50 });
+    canvas.fire('object:modified', { target: title });
+
+    expect(received).toEqual([{
+      type: 'element:transformed',
+      elementId: 'title',
+      before: { x: 10, y: 20, width: 100, height: 50, rotation: 5 },
+      after: { x: 50, y: 20, width: 100, height: 50, rotation: 5 },
+    }]);
+    adapter.dispose();
+  });
+
   it('실제 transform 시작 시점의 최신 값을 before snapshot으로 사용한다', () => {
     const canvas = createCanvas();
     const received: unknown[] = [];
@@ -225,7 +245,7 @@ describe('FabricEventAdapter', () => {
     adapter.dispose();
     adapter.dispose();
 
-    expect(canvas.off).toHaveBeenCalledTimes(11);
+    expect(canvas.off).toHaveBeenCalledTimes(12);
     expect(canvas.off.mock.calls.every(([event, handler]) => event && typeof handler === 'function')).toBe(true);
   });
 });
