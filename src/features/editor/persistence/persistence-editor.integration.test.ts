@@ -71,7 +71,12 @@ describe('persistence와 Editor 통합', () => {
       cropFocusY: 0,
     });
     expect(designSchema.safeParse(saved).success).toBe(true);
-    await expect(repository.load('local-demo')).resolves.toEqual({ status: 'loaded', design: saved });
+    await expect(repository.load('local-demo')).resolves.toMatchObject({
+      status: 'loaded',
+      design: saved,
+      needsSave: false,
+      updatedAt: expect.any(Number),
+    });
 
     editor.dispose();
     assetGateway.dispose();
