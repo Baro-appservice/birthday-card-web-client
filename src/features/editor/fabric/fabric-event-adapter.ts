@@ -44,6 +44,12 @@ export class FabricEventAdapter {
       this.snapGuides.clear();
       this.emitSelection([]);
     },
+    mouseDown: (event: FabricEvent) => {
+      // Capture before Fabric applies the first drag delta. Falling back to the
+      // first object:moving event loses that initial delta and makes Undo return
+      // to a partially moved position instead of the true gesture origin.
+      this.captureTransform(event.target, true);
+    },
     beforeTransform: (event: FabricEvent) => {
       this.snapGuides.clear();
       this.captureTransform(event.target, true);
@@ -77,6 +83,7 @@ export class FabricEventAdapter {
     this.on('selection:created', this.handlers.selectionCreated);
     this.on('selection:updated', this.handlers.selectionUpdated);
     this.on('selection:cleared', this.handlers.selectionCleared);
+    this.on('mouse:down', this.handlers.mouseDown);
     this.on('before:transform', this.handlers.beforeTransform);
     this.on('object:moving', this.handlers.objectMoving);
     this.on('object:scaling', this.handlers.objectScaling);
@@ -110,6 +117,7 @@ export class FabricEventAdapter {
     this.off('selection:created', this.handlers.selectionCreated);
     this.off('selection:updated', this.handlers.selectionUpdated);
     this.off('selection:cleared', this.handlers.selectionCleared);
+    this.off('mouse:down', this.handlers.mouseDown);
     this.off('before:transform', this.handlers.beforeTransform);
     this.off('object:moving', this.handlers.objectMoving);
     this.off('object:scaling', this.handlers.objectScaling);
