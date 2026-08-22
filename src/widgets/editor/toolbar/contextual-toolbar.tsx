@@ -211,12 +211,13 @@ function SelectionControls({ property }: { property: boolean }) {
       setError(error instanceof Error ? error.message : fallback);
     }
   };
+  const touchClass = property ? propertyTouchTargetClass : '';
   return (
     <>
-      {!property ? <><div className="h-6 border-l border-[var(--border)]" aria-hidden="true" />
-        <Button variant="ghost" onClick={() => void run(() => editor.bringForward(), '레이어를 앞으로 옮기지 못했습니다.')}>앞으로</Button>
-        <Button variant="ghost" onClick={() => void run(() => editor.sendBackward(), '레이어를 뒤로 옮기지 못했습니다.')}>뒤로</Button></> : null}
-      <Button variant="danger" className={property ? propertyTouchTargetClass : ''} onClick={() => void run(() => editor.deleteSelection(), '선택한 요소를 삭제하지 못했습니다.')}>삭제</Button>
+      {!property ? <div className="h-6 border-l border-[var(--border)]" aria-hidden="true" /> : null}
+      <Button className={touchClass} variant="ghost" onClick={() => void run(() => editor.bringForward(), '레이어를 앞으로 옮기지 못했습니다.')}>앞으로</Button>
+      <Button className={touchClass} variant="ghost" onClick={() => void run(() => editor.sendBackward(), '레이어를 뒤로 옮기지 못했습니다.')}>뒤로</Button>
+      <Button variant="danger" className={touchClass} onClick={() => void run(() => editor.deleteSelection(), '선택한 요소를 삭제하지 못했습니다.')}>삭제</Button>
     </>
   );
 }
