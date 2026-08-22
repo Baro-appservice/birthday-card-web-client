@@ -90,12 +90,19 @@ export function CommonElementControls({
   const setError = useEditorUiStore((state) => state.setError);
   const [opacityDraft, setOpacityDraft] = useState(Math.round(selected.opacity * 100));
   const opacityHistoryGroupRef = useRef<string | null>(null);
+  const selectedIdRef = useRef(selected.id);
 
   useEffect(() => {
+    if (selectedIdRef.current !== selected.id) {
+      selectedIdRef.current = selected.id;
+      opacityHistoryGroupRef.current = null;
+      setOpacityDraft(Math.round(selected.opacity * 100));
+      return;
+    }
     if (!opacityHistoryGroupRef.current) {
       setOpacityDraft(Math.round(selected.opacity * 100));
     }
-  }, [selected.opacity]);
+  }, [selected.id, selected.opacity]);
 
   const report = (error: unknown, fallback: string) => {
     setError(error instanceof Error ? error.message : fallback);
