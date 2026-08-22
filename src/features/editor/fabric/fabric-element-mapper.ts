@@ -1,8 +1,11 @@
-import type {
-  DesignElement,
-  DesignPage,
-  TextTransformSnapshot,
-  TransformSnapshot,
+import {
+  clampImageCropFocus,
+  clampImageCropZoom,
+  type DesignElement,
+  type DesignPage,
+  type ImageElement,
+  type TextTransformSnapshot,
+  type TransformSnapshot,
 } from '@/entities/design';
 import type { AssetGateway } from '@/features/editor/core/ports';
 import {
@@ -137,32 +140,36 @@ function mapShape(element: Extract<DesignElement, { type: 'shape' }>): FabricObj
   return ellipse;
 }
 
-function applyCoverImage(image: FabricImage, frameWidth: number, frameHeight: number): void {
+export function applyImageCrop(image: FabricImage, element: ImageElement): void {
   const original = image.getOriginalSize();
-  const sourceWidth = positiveOr(original.width, frameWidth);
-  const sourceHeight = positiveOr(original.height, frameHeight);
-  const frameAspect = frameWidth / frameHeight;
+  const sourceWidth = positiveOr(original.width, element.width);
+  const sourceHeight = positiveOr(original.height, element.height);
+  const frameAspect = element.width / element.height;
   const sourceAspect = sourceWidth / sourceHeight;
-  let cropWidth = sourceWidth;
-  let cropHeight = sourceHeight;
-  let cropX = 0;
-  let cropY = 0;
 
+  let coverWidth = sourceWidth;
+  let coverHeight = sourceHeight;
   if (sourceAspect > frameAspect) {
-    cropWidth = sourceHeight * frameAspect;
-    cropX = (sourceWidth - cropWidth) / 2;
+    coverWidth = sourceHeight * frameAspect;
   } else if (sourceAspect < frameAspect) {
-    cropHeight = sourceWidth / frameAspect;
-    cropY = (sourceHeight - cropHeight) / 2;
+    coverHeight = sourceWidth / frameAspect;
   }
+
+  const zoom = clampImageCropZoom(element.cropZoom ?? 1);
+  const cropWidth = coverWidth / zoom;
+  const cropHeight = coverHeight / zoom;
+  const focusX = (clampImageCropFocus(element.cropX ?? 0) + 1) / 2;
+  const focusY = (clampImageCropFocus(element.cropY ?? 0) + 1) / 2;
+  const cropX = (sourceWidth - cropWidth) * focusX;
+  const cropY = (sourceHeight - cropHeight) * focusY;
 
   image.set({
     cropX,
     cropY,
     width: cropWidth,
     height: cropHeight,
-    scaleX: frameWidth / cropWidth,
-    scaleY: frameHeight / cropHeight,
+    scaleX: element.width / cropWidth,
+    scaleY: element.height / cropHeight,
   });
 }
 
@@ -174,7 +181,7 @@ async function mapImage(
   try {
     const image = await FabricImage.fromURL(await assetGateway.resolveUrl(element.assetId));
     image.set(commonOptions(element));
-    applyCoverImage(image, element.width, element.height);
+    applyImageCrop(image, element);
     return image;
   } catch (error) {
     if (options.imageFailureMode === 'throw') {
