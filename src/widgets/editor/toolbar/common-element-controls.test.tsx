@@ -33,6 +33,43 @@ describe('CommonElementControls', () => {
     expect(selectedElement(kit)).toMatchObject({ opacity: 1, rotation: 45 });
   });
 
+  it('사진 crop slider를 history로 묶고 위치 초기화를 제공한다', async () => {
+    const kit = createEditorTestKit();
+    kit.runtimeStore.getState().setSelectedElementIds(['photo']);
+    const view = render(<ContextualToolbar />, { wrapper: kit.wrapper });
+
+    const zoom = view.getByRole('slider', { name: '사진 확대' });
+    fireEvent.focus(zoom);
+    fireEvent.change(zoom, { target: { value: '160' } });
+    fireEvent.change(zoom, { target: { value: '220' } });
+    fireEvent.blur(zoom);
+
+    const horizontal = view.getByRole('slider', { name: '사진 가로 위치' });
+    fireEvent.change(horizontal, { target: { value: '70' } });
+    fireEvent.blur(horizontal);
+
+    await waitFor(() => expect(selectedElement(kit)).toMatchObject({
+      cropZoom: 2.2,
+      cropX: 0.7,
+      cropY: 0,
+    }));
+
+    await kit.editor.undo();
+    expect(selectedElement(kit)).toMatchObject({ cropZoom: 2.2, cropX: 0, cropY: 0 });
+    await kit.editor.undo();
+    expect(selectedElement(kit)).toMatchObject({ cropZoom: 1, cropX: 0, cropY: 0 });
+
+    fireEvent.change(zoom, { target: { value: '180' } });
+    fireEvent.blur(zoom);
+    await waitFor(() => expect(selectedElement(kit)).toMatchObject({ cropZoom: 1.8 }));
+    fireEvent.click(view.getByRole('button', { name: '사진 위치 초기화' }));
+    await waitFor(() => expect(selectedElement(kit)).toMatchObject({
+      cropZoom: 1,
+      cropX: 0,
+      cropY: 0,
+    }));
+  });
+
   it('실제 renderer bounds를 사용한 캔버스 정렬과 복제 액션을 노출한다', async () => {
     const kit = createEditorTestKit();
     kit.runtimeStore.getState().setSelectedElementIds(['title']);
