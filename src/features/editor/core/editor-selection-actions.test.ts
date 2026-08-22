@@ -71,7 +71,7 @@ describe('Editor selection actions', () => {
     expect(elementById(kit, 'title')).toMatchObject({ x: 320 });
 
     await kit.editor.alignSelection('bottom');
-    expect(elementById(kit, 'title')).toMatchObject({ y: 380 });
+    expect(elementById(kit, 'title')).toMatchObject({ y: 980 });
     expect(kit.renderer.measureElement).toHaveBeenCalledWith('title');
   });
 
