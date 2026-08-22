@@ -33,6 +33,30 @@ async function replaceCurrent(
   await transactionDone(transaction);
 }
 
+function legacyV1FromCurrent(design: Design) {
+  return {
+    ...structuredClone(design),
+    version: 1,
+    pages: design.pages.map((page) => ({
+      ...structuredClone(page),
+      elements: page.elements.map((element) => {
+        if (element.type !== 'image') return structuredClone(element);
+        return {
+          id: element.id,
+          type: element.type,
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+          rotation: element.rotation,
+          opacity: element.opacity,
+          assetId: element.assetId,
+        };
+      }),
+    })),
+  };
+}
+
 async function closeAndDelete(db: IDBDatabase) {
   const name = db.name;
   db.close();
@@ -44,18 +68,20 @@ async function closeAndDelete(db: IDBDatabase) {
 }
 
 describe('IndexedDbDesignRepository', () => {
-  it('유효한 v1 current를 v2로 migrate하고 재저장이 필요하다고 표시한다', async () => {
+  it('유효한 v1 current를 v3로 migrate하고 재저장이 필요하다고 표시한다', async () => {
     const db = await openTestDb();
     const repository = new IndexedDbDesignRepository(db);
     const current = createSampleDesign();
     await repository.save('local-demo', current);
-    await replaceCurrent(db, 'local-demo', { ...current, version: 1 });
+    await replaceCurrent(db, 'local-demo', legacyV1FromCurrent(current));
 
     const result = await repository.load('local-demo');
 
     expect(result).toMatchObject({ status: 'loaded', needsSave: true });
     if (result.status !== 'loaded') throw new Error('v1 current를 불러오지 못했습니다.');
-    expect(result.design.version).toBe(2);
+    expect(result.design.version).toBe(3);
+    expect(result.design.pages[0].elements.find((element) => element.id === 'photo'))
+      .toMatchObject({ cropZoom: 1, cropX: 0, cropY: 0 });
     expect(result.updatedAt).toEqual(expect.any(Number));
     await closeAndDelete(db);
   });
