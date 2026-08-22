@@ -2,7 +2,10 @@ import { Line, type Canvas, type FabricObject } from 'fabric';
 
 import { getElementId } from './fabric-object-metadata';
 
-const SNAP_THRESHOLD = 12;
+const FALLBACK_SNAP_THRESHOLD = 12;
+const SCREEN_SNAP_THRESHOLD_PX = 8;
+const MIN_DESIGN_THRESHOLD = 4;
+const MAX_DESIGN_THRESHOLD = 32;
 const GUIDE_STROKE = '#b52262';
 
 type Axis = 'x' | 'y';
@@ -43,12 +46,30 @@ function canvasSnapPoints(canvas: Canvas, axis: Axis): SnapPoint[] {
   ];
 }
 
-function closestSnap(moving: SnapPoint[], references: SnapPoint[]): SnapResult {
+function designSnapThreshold(canvas: Canvas): number {
+  const renderedWidth = canvas.lowerCanvasEl?.getBoundingClientRect().width;
+  const designWidth = canvas.getWidth();
+  if (!renderedWidth || !Number.isFinite(renderedWidth) || !designWidth || !Number.isFinite(designWidth)) {
+    return FALLBACK_SNAP_THRESHOLD;
+  }
+  const cssScale = renderedWidth / designWidth;
+  if (!Number.isFinite(cssScale) || cssScale <= 0) return FALLBACK_SNAP_THRESHOLD;
+  return Math.min(
+    MAX_DESIGN_THRESHOLD,
+    Math.max(MIN_DESIGN_THRESHOLD, SCREEN_SNAP_THRESHOLD_PX / cssScale),
+  );
+}
+
+function closestSnap(
+  moving: SnapPoint[],
+  references: SnapPoint[],
+  threshold: number,
+): SnapResult {
   let best: SnapResult = null;
   for (const source of moving) {
     for (const reference of references) {
       const delta = reference.value - source.value;
-      if (Math.abs(delta) > SNAP_THRESHOLD) continue;
+      if (Math.abs(delta) > threshold) continue;
       if (!best || Math.abs(delta) < Math.abs(best.delta)) {
         best = { delta, guide: reference.guide };
       }
@@ -91,9 +112,10 @@ export class FabricSnapGuides {
       ...canvasSnapPoints(this.canvas, 'y'),
       ...referenceObjects.flatMap((candidate) => objectSnapPoints(candidate, 'y')),
     ];
+    const threshold = designSnapThreshold(this.canvas);
 
-    const xSnap = closestSnap(objectSnapPoints(object, 'x'), xReferences);
-    const ySnap = closestSnap(objectSnapPoints(object, 'y'), yReferences);
+    const xSnap = closestSnap(objectSnapPoints(object, 'x'), xReferences, threshold);
+    const ySnap = closestSnap(objectSnapPoints(object, 'y'), yReferences, threshold);
 
     if (xSnap) object.set({ left: (object.left ?? 0) + xSnap.delta });
     if (ySnap) object.set({ top: (object.top ?? 0) + ySnap.delta });
