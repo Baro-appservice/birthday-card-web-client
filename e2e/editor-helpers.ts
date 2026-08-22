@@ -15,8 +15,8 @@ export interface StoredElement {
   fontSize?: number;
   assetId?: string;
   cropZoom?: number;
-  cropX?: number;
-  cropY?: number;
+  cropFocusX?: number;
+  cropFocusY?: number;
 }
 
 export interface StoredDesign {
