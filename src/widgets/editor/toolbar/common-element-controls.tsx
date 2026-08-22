@@ -2,7 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import type { DesignElement } from '@/entities/design';
+import {
+  IMAGE_CROP_FOCUS_MAX,
+  IMAGE_CROP_FOCUS_MIN,
+  IMAGE_CROP_ZOOM_MAX,
+  IMAGE_CROP_ZOOM_MIN,
+  type DesignElement,
+  type ImageElement,
+} from '@/entities/design';
 import type { CanvasAlignment } from '@/features/editor/core/editor';
 import { useEditor, useEditorUiStore } from '@/features/editor/hooks/use-editor';
 import { Button } from '@/shared/ui/button';
@@ -79,6 +86,137 @@ const alignments: ReadonlyArray<{
   { value: 'bottom', label: '캔버스 아래쪽에 맞춤', shortLabel: '하' },
 ];
 
+type CropKey = 'cropZoom' | 'cropX' | 'cropY';
+
+function ImageCropControls({
+  selected,
+  property,
+  run,
+}: {
+  selected: ImageElement;
+  property: boolean;
+  run(action: () => Promise<void>, fallback: string): Promise<void>;
+}) {
+  const editor = useEditor();
+  const [draft, setDraft] = useState({
+    cropZoom: Math.round((selected.cropZoom ?? 1) * 100),
+    cropX: Math.round((selected.cropX ?? 0) * 100),
+    cropY: Math.round((selected.cropY ?? 0) * 100),
+  });
+  const groupsRef = useRef<Partial<Record<CropKey, string>>>({});
+  const selectedIdRef = useRef(selected.id);
+
+  useEffect(() => {
+    const next = {
+      cropZoom: Math.round((selected.cropZoom ?? 1) * 100),
+      cropX: Math.round((selected.cropX ?? 0) * 100),
+      cropY: Math.round((selected.cropY ?? 0) * 100),
+    };
+    if (selectedIdRef.current !== selected.id) {
+      selectedIdRef.current = selected.id;
+      groupsRef.current = {};
+      setDraft(next);
+      return;
+    }
+    setDraft((current) => ({
+      cropZoom: groupsRef.current.cropZoom ? current.cropZoom : next.cropZoom,
+      cropX: groupsRef.current.cropX ? current.cropX : next.cropX,
+      cropY: groupsRef.current.cropY ? current.cropY : next.cropY,
+    }));
+  }, [selected.id, selected.cropZoom, selected.cropX, selected.cropY]);
+
+  const ensureGroup = (key: CropKey) => {
+    if (!groupsRef.current[key]) {
+      groupsRef.current[key] = createHistoryGroup(`image-${key}`, selected.id);
+    }
+    return groupsRef.current[key]!;
+  };
+  const finishGroup = (key: CropKey) => {
+    delete groupsRef.current[key];
+  };
+  const update = (key: CropKey, rawValue: number) => {
+    const limits = key === 'cropZoom'
+      ? [IMAGE_CROP_ZOOM_MIN * 100, IMAGE_CROP_ZOOM_MAX * 100]
+      : [IMAGE_CROP_FOCUS_MIN * 100, IMAGE_CROP_FOCUS_MAX * 100];
+    const bounded = Math.min(limits[1], Math.max(limits[0], rawValue));
+    setDraft((current) => ({ ...current, [key]: bounded }));
+    const historyGroup = ensureGroup(key);
+    const value = bounded / 100;
+    void run(
+      () => editor.updateSelection(
+        { type: 'image', changes: { [key]: value } },
+        { historyGroup },
+      ),
+      '사진 프레임 위치를 바꾸지 못했습니다.',
+    ).catch(() => undefined);
+  };
+  const rangeClass = `${property ? 'min-h-11' : ''} w-24 accent-[var(--brand)]`;
+
+  const slider = (
+    key: CropKey,
+    label: string,
+    min: number,
+    max: number,
+    valueLabel: string,
+  ) => (
+    <label className="flex min-w-44 items-center gap-2 text-xs font-semibold text-[var(--ink-muted)]">
+      <span>{label}</span>
+      <input
+        aria-label={label}
+        type="range"
+        min={min}
+        max={max}
+        step="1"
+        value={draft[key]}
+        onFocus={() => { ensureGroup(key); }}
+        onPointerDown={() => { ensureGroup(key); }}
+        onChange={(event) => update(key, Number(event.target.value))}
+        onBlur={() => { finishGroup(key); }}
+        onPointerUp={() => { finishGroup(key); }}
+        className={rangeClass}
+      />
+      <output className="min-w-11 text-right font-mono">{valueLabel}</output>
+    </label>
+  );
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1.5" aria-label="사진 프레임 편집">
+      {slider(
+        'cropZoom',
+        '사진 확대',
+        IMAGE_CROP_ZOOM_MIN * 100,
+        IMAGE_CROP_ZOOM_MAX * 100,
+        `${draft.cropZoom}%`,
+      )}
+      {slider(
+        'cropX',
+        '사진 가로 위치',
+        IMAGE_CROP_FOCUS_MIN * 100,
+        IMAGE_CROP_FOCUS_MAX * 100,
+        `${draft.cropX}%`,
+      )}
+      {slider(
+        'cropY',
+        '사진 세로 위치',
+        IMAGE_CROP_FOCUS_MIN * 100,
+        IMAGE_CROP_FOCUS_MAX * 100,
+        `${draft.cropY}%`,
+      )}
+      <Button
+        variant="ghost"
+        className={property ? propertyTouchTargetClass : ''}
+        onClick={() => void run(
+          () => editor.updateSelection({
+            type: 'image',
+            changes: { cropZoom: 1, cropX: 0, cropY: 0 },
+          }),
+          '사진 프레임을 초기화하지 못했습니다.',
+        ).catch(() => undefined)}
+      >사진 위치 초기화</Button>
+    </div>
+  );
+}
+
 export function CommonElementControls({
   selected,
   property,
@@ -144,6 +282,10 @@ export function CommonElementControls({
 
   return (
     <div className="flex flex-wrap items-center gap-2" aria-label="공통 요소 편집">
+      {selected.type === 'image' ? (
+        <ImageCropControls selected={selected} property={property} run={run} />
+      ) : null}
+
       <label className="flex items-center gap-1.5 text-xs font-semibold text-[var(--ink-muted)]">
         <span>회전°</span>
         <RotationInput
