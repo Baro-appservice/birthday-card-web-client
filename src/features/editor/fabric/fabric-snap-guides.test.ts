@@ -34,14 +34,16 @@ function element(id: string, left: number, top: number, width: number, height: n
 }
 
 describe('FabricSnapGuides', () => {
-  it('요소 중심이 캔버스 중심 threshold 안에 들어오면 정확히 중앙에 snap한다', () => {
+  it('요소 중심이 캔버스 중심 threshold 안에 들어오면 실제 bounds 중심을 정확히 중앙에 snap한다', () => {
     const moving = element('moving', 486, 100, 100, 80);
     const canvas = createCanvas([moving]);
     const guides = new FabricSnapGuides(canvas as unknown as Canvas);
 
     guides.handleMoving(moving);
 
-    expect(moving.left).toBeCloseTo(490, 8);
+    moving.setCoords();
+    const bounds = moving.getBoundingRect();
+    expect(bounds.left + bounds.width / 2).toBeCloseTo(540, 8);
     expect(canvas.add).toHaveBeenCalledTimes(1);
     expect(canvas.requestRenderAll).toHaveBeenCalled();
   });
