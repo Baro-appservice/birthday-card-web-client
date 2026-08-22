@@ -8,19 +8,13 @@ import type {
 import { Canvas, Ellipse, FabricImage, Rect, Textbox, type FabricObject } from 'fabric';
 
 import { FabricEventAdapter } from './fabric-event-adapter';
-import { elementToFabricObject } from './fabric-element-mapper';
+import { applyImageCrop, elementToFabricObject } from './fabric-element-mapper';
 import { getElementId } from './fabric-object-metadata';
 
 const APPROVED_FONT_FAMILIES = new Set(['system-ui', 'Arial', 'Georgia']);
 
 function dedupe(ids: string[]): string[] {
   return [...new Set(ids)];
-}
-
-function positiveOr(value: number | undefined, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) > 0
-    ? Math.abs(value)
-    : fallback;
 }
 
 function canReuseObject(
@@ -67,36 +61,6 @@ function applyCommonProperties(object: FabricObject, element: DesignElement): vo
   configureInteraction(object, element);
 }
 
-function applyCoverImage(object: FabricImage, frameWidth: number, frameHeight: number): void {
-  const original = object.getOriginalSize();
-  const sourceWidth = positiveOr(original.width, frameWidth);
-  const sourceHeight = positiveOr(original.height, frameHeight);
-  const frameAspect = frameWidth / frameHeight;
-  const sourceAspect = sourceWidth / sourceHeight;
-
-  let cropWidth = sourceWidth;
-  let cropHeight = sourceHeight;
-  let cropX = 0;
-  let cropY = 0;
-
-  if (sourceAspect > frameAspect) {
-    cropWidth = sourceHeight * frameAspect;
-    cropX = (sourceWidth - cropWidth) / 2;
-  } else if (sourceAspect < frameAspect) {
-    cropHeight = sourceWidth / frameAspect;
-    cropY = (sourceHeight - cropHeight) / 2;
-  }
-
-  object.set({
-    cropX,
-    cropY,
-    width: cropWidth,
-    height: cropHeight,
-    scaleX: frameWidth / cropWidth,
-    scaleY: frameHeight / cropHeight,
-  });
-}
-
 function patchObject(object: FabricObject, element: DesignElement): void {
   applyCommonProperties(object, element);
 
@@ -133,7 +97,7 @@ function patchObject(object: FabricObject, element: DesignElement): void {
       scaleY: 1,
     });
   } else if (element.type === 'image' && object instanceof FabricImage) {
-    applyCoverImage(object, element.width, element.height);
+    applyImageCrop(object, element);
   } else if (element.type === 'image' && object instanceof Rect) {
     object.set({
       width: element.width,
