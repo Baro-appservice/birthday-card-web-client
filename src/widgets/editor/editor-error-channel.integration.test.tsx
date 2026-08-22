@@ -59,7 +59,7 @@ describe('editor error channels', () => {
       saveStatus: 'saved',
     });
 
-    kit.uiStore.getState().setSaveError('quota remains');
+    act(() => kit.uiStore.getState().setSaveError('quota remains'));
     await user.click(screen.getByRole('button', { name: 'PNG 저장' }));
     await waitFor(() => expect(kit.uiStore.getState().error).toBeNull());
 
