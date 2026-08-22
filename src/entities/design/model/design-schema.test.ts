@@ -41,8 +41,8 @@ const elementVariants = [
       opacity: 1,
       assetId: '550e8400-e29b-41d4-a716-446655440000',
       cropZoom: 1,
-      cropX: 0,
-      cropY: 0,
+      cropFocusX: 0,
+      cropFocusY: 0,
     },
     coreField: 'assetId',
     invalidCoreValue: 123,
@@ -155,9 +155,14 @@ describe('designSchema', () => {
 
     expect(designElementSchema.safeParse({ ...image, cropZoom: 0.99 }).success).toBe(false);
     expect(designElementSchema.safeParse({ ...image, cropZoom: 3.01 }).success).toBe(false);
-    expect(designElementSchema.safeParse({ ...image, cropX: -1.01 }).success).toBe(false);
-    expect(designElementSchema.safeParse({ ...image, cropY: 1.01 }).success).toBe(false);
-    expect(designElementSchema.safeParse({ ...image, cropZoom: 3, cropX: -1, cropY: 1 }).success).toBe(true);
+    expect(designElementSchema.safeParse({ ...image, cropFocusX: -1.01 }).success).toBe(false);
+    expect(designElementSchema.safeParse({ ...image, cropFocusY: 1.01 }).success).toBe(false);
+    expect(designElementSchema.safeParse({
+      ...image,
+      cropZoom: 3,
+      cropFocusX: -1,
+      cropFocusY: 1,
+    }).success).toBe(true);
   });
 
   it.each(elementVariants)(
@@ -200,7 +205,8 @@ describe('designSchema', () => {
     expect(designSchema.safeParse({
       ...createSampleDesign(),
       pages: [],
-    }).success).toBe(false);
+    }).success,
+    ).toBe(false);
   });
 
   it('샘플의 모든 텍스트는 승인된 기본 글꼴 system-ui를 사용한다', () => {
