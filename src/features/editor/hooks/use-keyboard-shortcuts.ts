@@ -2,7 +2,10 @@ import { useEffect } from 'react';
 
 import type { EditorApi } from '@/features/editor/core/editor';
 
-type ShortcutEditor = Pick<EditorApi, 'deleteSelection' | 'undo' | 'redo'>;
+type ShortcutEditor = Pick<
+  EditorApi,
+  'deleteSelection' | 'undo' | 'redo' | 'bringForward' | 'sendBackward'
+>;
 
 interface KeyboardShortcutOptions {
   enabled?: boolean;
@@ -51,6 +54,10 @@ export function useKeyboardShortcuts(
         dispatch(event, () => editor.undo());
       } else if ((key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey)) {
         dispatch(event, () => editor.redo());
+      } else if (key === ']' && !event.shiftKey) {
+        dispatch(event, () => editor.bringForward());
+      } else if (key === '[' && !event.shiftKey) {
+        dispatch(event, () => editor.sendBackward());
       }
     };
 
