@@ -43,7 +43,7 @@ export interface EditorDependencies {
 }
 
 type CommonSelectionChanges = Partial<Pick<BaseElement, 'x' | 'y' | 'rotation' | 'opacity'>>;
-type ImageSelectionChanges = Partial<Pick<ImageElement, 'cropZoom' | 'cropX' | 'cropY'>>;
+type ImageSelectionChanges = Partial<Pick<ImageElement, 'cropZoom' | 'cropFocusX' | 'cropFocusY'>>;
 
 export type SelectionPatch =
   | { type: 'common'; changes: CommonSelectionChanges }
@@ -158,8 +158,8 @@ function assertCommonSelectionChanges(changes: CommonSelectionChanges): void {
 
 function assertImageSelectionChanges(changes: ImageSelectionChanges): void {
   if (changes.cropZoom !== undefined) assertImageCropZoom(changes.cropZoom);
-  if (changes.cropX !== undefined) assertImageCropFocus(changes.cropX);
-  if (changes.cropY !== undefined) assertImageCropFocus(changes.cropY);
+  if (changes.cropFocusX !== undefined) assertImageCropFocus(changes.cropFocusX);
+  if (changes.cropFocusY !== undefined) assertImageCropFocus(changes.cropFocusY);
 }
 
 function duplicateCoordinate(position: number, size: number, limit: number): number {
@@ -299,8 +299,8 @@ export class Editor implements EditorApi {
             opacity: 1,
             assetId: asset.id,
             cropZoom: 1,
-            cropX: 0,
-            cropY: 0,
+            cropFocusX: 0,
+            cropFocusY: 0,
           },
         )), [id]);
       } catch (error) {
@@ -321,7 +321,7 @@ export class Editor implements EditorApi {
           this.dependencies.designStore,
           this.pageId,
           selected.id,
-          { assetId: asset.id, cropZoom: 1, cropX: 0, cropY: 0 },
+          { assetId: asset.id, cropZoom: 1, cropFocusX: 0, cropFocusY: 0 },
         )));
       } catch (error) {
         await this.rethrowAfterUploadedAssetCompensation(asset.id, error);
