@@ -207,7 +207,7 @@ test('기존 v1 카드는 자동으로 v3로 migration하고 다시 저장한다
   expect(findElement(await readSavedDesign(page, cardId), 'title').text)
     .toBe(findElement(current, 'title').text);
   expect(findElement(await readSavedDesign(page, cardId), 'photo'))
-    .toMatchObject({ cropZoom: 1, cropX: 0, cropY: 0 });
+    .toMatchObject({ cropZoom: 1, cropFocusX: 0, cropFocusY: 0 });
 });
 
 test('손상된 현재 카드는 선택 전까지 유지하고 직전 정상 카드로 복구한다', async ({ page }) => {
