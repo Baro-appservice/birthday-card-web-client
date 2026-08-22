@@ -36,8 +36,8 @@ test('사진 crop 확대·위치를 저장하고 재로드해 복원하며 Undo�
   await expect.poll(async () => findElement(await readSavedDesign(page, cardId), 'photo').cropZoom)
     .toBe(1.8);
   expect(findElement(await readSavedDesign(page, cardId), 'photo')).toMatchObject({
-    cropX: 0.5,
-    cropY: -0.4,
+    cropFocusX: 0.5,
+    cropFocusY: -0.4,
   });
 
   await page.reload();
@@ -52,14 +52,17 @@ test('사진 crop 확대·위치를 저장하고 재로드해 복원하며 Undo�
   await page.getByRole('button', { name: '사진 위치 초기화' }).click();
   await expect.poll(async () => findElement(await readSavedDesign(page, cardId), 'photo').cropZoom)
     .toBe(1);
-  expect(findElement(await readSavedDesign(page, cardId), 'photo')).toMatchObject({ cropX: 0, cropY: 0 });
+  expect(findElement(await readSavedDesign(page, cardId), 'photo')).toMatchObject({
+    cropFocusX: 0,
+    cropFocusY: 0,
+  });
 
   await page.getByRole('button', { name: '실행 취소' }).click();
   await expect.poll(async () => findElement(await readSavedDesign(page, cardId), 'photo').cropZoom)
     .toBe(1.8);
   expect(findElement(await readSavedDesign(page, cardId), 'photo')).toMatchObject({
-    cropX: 0.5,
-    cropY: -0.4,
+    cropFocusX: 0.5,
+    cropFocusY: -0.4,
   });
 });
 
