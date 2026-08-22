@@ -13,6 +13,8 @@ import { Button } from '@/shared/ui/button';
 import { ColorInput } from '@/shared/ui/color-input';
 import { useDesignStore, useEditor, useEditorRuntimeStore, useEditorUiStore } from '@/features/editor/hooks/use-editor';
 
+import { CommonElementControls } from './common-element-controls';
+
 const propertyTouchTargetClass = 'property-touch-target min-h-11 min-w-11';
 const approvedFontFamilies = ['system-ui', 'Arial', 'Georgia'] as const;
 const textCommitDelayMs = 160;
@@ -354,6 +356,7 @@ export function ContextualToolbar({ variant = 'desktop' }: { variant?: 'desktop'
       {selected.type === 'text' && <TextControls selected={selected} property={variant === 'property'} pageId={activePageId} />}
       {selected.type === 'image' && <ImageControls property={variant === 'property'} />}
       {selected.type === 'shape' && <ShapeControls selected={selected} property={variant === 'property'} />}
+      <CommonElementControls selected={selected} property={variant === 'property'} />
       <SelectionControls property={variant === 'property'} />
     </section>
   );
