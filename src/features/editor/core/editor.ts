@@ -1,10 +1,13 @@
 import {
   assertHexColor,
+  assertImageCropFocus,
+  assertImageCropZoom,
   assertTextFontSize,
   collectDesignAssetIds,
   type BaseElement,
   type Design,
   type DesignElement,
+  type ImageElement,
   type ShapeElement,
   type TextElement,
 } from '@/entities/design';
@@ -40,6 +43,7 @@ export interface EditorDependencies {
 }
 
 type CommonSelectionChanges = Partial<Pick<BaseElement, 'x' | 'y' | 'rotation' | 'opacity'>>;
+type ImageSelectionChanges = Partial<Pick<ImageElement, 'cropZoom' | 'cropX' | 'cropY'>>;
 
 export type SelectionPatch =
   | { type: 'common'; changes: CommonSelectionChanges }
@@ -48,6 +52,7 @@ export type SelectionPatch =
       changes: Partial<Pick<TextElement,
         'text' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>;
     }
+  | { type: 'image'; changes: ImageSelectionChanges }
   | { type: 'shape'; changes: Partial<Pick<ShapeElement, 'fill'>> };
 
 export type CanvasAlignment =
@@ -149,6 +154,12 @@ function assertCommonSelectionChanges(changes: CommonSelectionChanges): void {
     && (!Number.isFinite(changes.opacity) || changes.opacity < 0 || changes.opacity > 1)) {
     throw new Error('투명도는 0에서 1 사이여야 합니다.');
   }
+}
+
+function assertImageSelectionChanges(changes: ImageSelectionChanges): void {
+  if (changes.cropZoom !== undefined) assertImageCropZoom(changes.cropZoom);
+  if (changes.cropX !== undefined) assertImageCropFocus(changes.cropX);
+  if (changes.cropY !== undefined) assertImageCropFocus(changes.cropY);
 }
 
 function duplicateCoordinate(position: number, size: number, limit: number): number {
@@ -287,6 +298,9 @@ export class Editor implements EditorApi {
             rotation: 0,
             opacity: 1,
             assetId: asset.id,
+            cropZoom: 1,
+            cropX: 0,
+            cropY: 0,
           },
         )), [id]);
       } catch (error) {
@@ -307,7 +321,7 @@ export class Editor implements EditorApi {
           this.dependencies.designStore,
           this.pageId,
           selected.id,
-          { assetId: asset.id },
+          { assetId: asset.id, cropZoom: 1, cropX: 0, cropY: 0 },
         )));
       } catch (error) {
         await this.rethrowAfterUploadedAssetCompensation(asset.id, error);
@@ -330,6 +344,9 @@ export class Editor implements EditorApi {
         if (selected.type !== 'text') return;
         if (patch.changes.fontSize !== undefined) assertTextFontSize(patch.changes.fontSize);
         if (patch.changes.color !== undefined) assertHexColor(patch.changes.color);
+      } else if (patch.type === 'image') {
+        if (selected.type !== 'image') return;
+        assertImageSelectionChanges(patch.changes);
       } else {
         if (selected.type !== 'shape') return;
         if (patch.changes.fill !== undefined) assertHexColor(patch.changes.fill);
