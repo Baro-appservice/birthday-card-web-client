@@ -41,11 +41,11 @@ export interface ImageElement extends BaseElement {
   type: 'image';
   assetId: string;
   /** 1 = cover 기본값, 3 = cover 대비 3배 확대. */
-  cropZoom?: number;
+  cropZoom: number;
   /** -1 = 가능한 가장 왼쪽, 0 = 중앙, 1 = 가능한 가장 오른쪽 focus. */
-  cropFocusX?: number;
+  cropFocusX: number;
   /** -1 = 가능한 가장 위, 0 = 중앙, 1 = 가능한 가장 아래 focus. */
-  cropFocusY?: number;
+  cropFocusY: number;
 }
 
 export interface ShapeElement extends BaseElement {
