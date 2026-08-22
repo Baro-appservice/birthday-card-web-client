@@ -41,13 +41,15 @@ afterEach(() => {
 });
 
 describe('BrowserAssetGateway garbageCollect', () => {
-  it('현재/backup/미지원 버전/emergency/history 보호 asset은 남기고 orphan만 삭제한다', async () => {
+  it('현재/backup/미지원 버전/emergency/history 보호 asset은 남기고 grace가 지난 orphan만 삭제한다', async () => {
     const db = await openEditorDb(`birthday-canvas-gc-${crypto.randomUUID()}`);
     const ids = ['current', 'backup', 'future', 'emergency', 'history', 'orphan'];
     let index = 0;
+    let now = 0;
     const gateway = new BrowserAssetGateway(db, {
       decoder: async () => ({ width: 640, height: 480 }),
       idGenerator: () => ids[index++],
+      now: () => now,
     });
 
     for (const id of ids) {
@@ -75,6 +77,7 @@ describe('BrowserAssetGateway garbageCollect', () => {
       updatedAt: 3,
     }));
 
+    now = 6 * 60 * 1_000;
     await gateway.garbageCollect(new Set(['asset:history']));
 
     expect(await assetKeys(db)).toEqual([
