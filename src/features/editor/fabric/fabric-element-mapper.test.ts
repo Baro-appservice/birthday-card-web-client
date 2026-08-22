@@ -3,7 +3,12 @@ import type { AssetGateway } from '@/features/editor/core/ports';
 import { Ellipse, FabricImage, Rect, Textbox } from 'fabric';
 import { describe, expect, it, vi } from 'vitest';
 
-import { elementToFabricObject, readTextTransform, readTransform } from './fabric-element-mapper';
+import {
+  applyImageCrop,
+  elementToFabricObject,
+  readTextTransform,
+  readTransform,
+} from './fabric-element-mapper';
 import { getElementId } from './fabric-object-metadata';
 
 const textElement: DesignElement = {
@@ -104,20 +109,61 @@ describe('fabric element mapper', () => {
     expect(getElementId(object)).toBe(`${shape}-1`);
   });
 
-  it('이미지는 AssetGateway URL과 원본 비율을 사용해 Domain 크기로 맞춘다', async () => {
+  it('이미지는 기본 crop을 중앙 cover로 계산해 Domain 프레임에 맞춘다', async () => {
     const image = new FabricImage(document.createElement('img'), { width: 400, height: 200 });
+    vi.spyOn(image, 'getOriginalSize').mockReturnValue({ width: 400, height: 200 });
     const fromUrl = vi.spyOn(FabricImage, 'fromURL').mockResolvedValue(image);
     vi.mocked(assetGateway.resolveUrl).mockResolvedValueOnce('/assets/party.png');
 
     const object = await elementToFabricObject({
       id: 'photo', type: 'image', assetId: 'asset-photo', x: 100, y: 200, width: 600, height: 500,
-      rotation: 0, opacity: 1,
+      rotation: 0, opacity: 1, cropZoom: 1, cropX: 0, cropY: 0,
     }, assetGateway);
 
     expect(assetGateway.resolveUrl).toHaveBeenLastCalledWith('asset-photo');
     expect(fromUrl).toHaveBeenCalledWith('/assets/party.png');
-    expect(object).toMatchObject({ left: 100, top: 200, scaleX: 1.5, scaleY: 2.5, originX: 'left', originY: 'top' });
+    expect(object).toMatchObject({
+      left: 100,
+      top: 200,
+      cropX: 80,
+      cropY: 0,
+      width: 240,
+      height: 200,
+      scaleX: 2.5,
+      scaleY: 2.5,
+      originX: 'left',
+      originY: 'top',
+    });
     expect(getElementId(object)).toBe('photo');
+  });
+
+  it('crop 확대와 focus를 원본 범위 안에서 계산한다', () => {
+    const image = new FabricImage(document.createElement('img'), { width: 400, height: 200 });
+    vi.spyOn(image, 'getOriginalSize').mockReturnValue({ width: 400, height: 200 });
+
+    applyImageCrop(image, {
+      id: 'photo',
+      type: 'image',
+      assetId: 'asset-photo',
+      x: 0,
+      y: 0,
+      width: 600,
+      height: 500,
+      rotation: 0,
+      opacity: 1,
+      cropZoom: 2,
+      cropX: 1,
+      cropY: -1,
+    });
+
+    expect(image).toMatchObject({
+      cropX: 280,
+      cropY: 0,
+      width: 120,
+      height: 100,
+      scaleX: 5,
+      scaleY: 5,
+    });
   });
 
   it.each(['resolve', 'decode'] as const)(
@@ -130,6 +176,7 @@ describe('fabric element mapper', () => {
       const object = await elementToFabricObject({
         id: 'broken-photo', type: 'image', assetId: 'asset-broken', x: 101, y: 202,
         width: 303, height: 404, rotation: 17, opacity: 0.6,
+        cropZoom: 1, cropX: 0, cropY: 0,
       }, gateway);
 
       expect(object).toBeInstanceOf(Rect);
