@@ -117,8 +117,9 @@ describe('FabricEditorRenderer object disposal', () => {
     };
 
     const rendering = renderer.render(design);
+    await vi.waitFor(() => expect(resolveImage).toBeTypeOf('function'));
     const closing = renderer.dispose();
-    resolveImage?.(image);
+    resolveImage!(image);
 
     await rendering;
     await closing;
