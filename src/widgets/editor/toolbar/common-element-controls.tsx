@@ -24,21 +24,15 @@ function createHistoryGroup(kind: string, elementId: string): string {
 }
 
 function RotationInput({
-  elementId,
   rotation,
   property,
   onCommit,
 }: {
-  elementId: string;
   rotation: number;
   property: boolean;
   onCommit(rotation: number): Promise<void>;
 }) {
   const [draft, setDraft] = useState(String(Math.round(rotation * 100) / 100));
-
-  useEffect(() => {
-    setDraft(String(Math.round(rotation * 100) / 100));
-  }, [elementId, rotation]);
 
   const commit = async () => {
     const parsed = Number(draft);
@@ -99,18 +93,18 @@ function ImageCropControls({
 }) {
   const editor = useEditor();
   const [draft, setDraft] = useState({
-    cropZoom: Math.round((selected.cropZoom ?? 1) * 100),
-    cropFocusX: Math.round((selected.cropFocusX ?? 0) * 100),
-    cropFocusY: Math.round((selected.cropFocusY ?? 0) * 100),
+    cropZoom: Math.round(selected.cropZoom * 100),
+    cropFocusX: Math.round(selected.cropFocusX * 100),
+    cropFocusY: Math.round(selected.cropFocusY * 100),
   });
   const groupsRef = useRef<Partial<Record<CropKey, string>>>({});
   const selectedIdRef = useRef(selected.id);
 
   useEffect(() => {
     const next = {
-      cropZoom: Math.round((selected.cropZoom ?? 1) * 100),
-      cropFocusX: Math.round((selected.cropFocusX ?? 0) * 100),
-      cropFocusY: Math.round((selected.cropFocusY ?? 0) * 100),
+      cropZoom: Math.round(selected.cropZoom * 100),
+      cropFocusX: Math.round(selected.cropFocusX * 100),
+      cropFocusY: Math.round(selected.cropFocusY * 100),
     };
     if (selectedIdRef.current !== selected.id) {
       selectedIdRef.current = selected.id;
@@ -294,7 +288,7 @@ export function CommonElementControls({
       <label className="flex items-center gap-1.5 text-xs font-semibold text-[var(--ink-muted)]">
         <span>회전°</span>
         <RotationInput
-          elementId={selected.id}
+          key={`${selected.id}:${selected.rotation}`}
           rotation={selected.rotation}
           property={property}
           onCommit={(rotation) => updateCommon({ rotation })}
