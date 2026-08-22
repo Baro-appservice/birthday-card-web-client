@@ -40,6 +40,9 @@ const elementVariants = [
       rotation: 0,
       opacity: 1,
       assetId: '550e8400-e29b-41d4-a716-446655440000',
+      cropZoom: 1,
+      cropX: 0,
+      cropY: 0,
     },
     coreField: 'assetId',
     invalidCoreValue: 123,
@@ -68,11 +71,11 @@ const elementVariants = [
 ] as const;
 
 describe('designSchema', () => {
-  it('자기 생일 샘플은 유효한 1080x1350 문서다', () => {
+  it('자기 생일 샘플은 유효한 1080x1350 v3 문서다', () => {
     const design = createSampleDesign();
 
     expect(designSchema.parse(design)).toMatchObject({
-      version: 1,
+      version: 3,
       width: 1080,
       height: 1350,
     });
@@ -144,6 +147,17 @@ describe('designSchema', () => {
         pages: [{ ...design.pages[0], elements: [{ ...image, assetId: '   ' }] }],
       }).success,
     ).toBe(false);
+  });
+
+  it('이미지 crop 범위를 벗어난 저장 값은 거부한다', () => {
+    const image = createSampleDesign().pages[0].elements.find((element) => element.type === 'image');
+    if (!image || image.type !== 'image') throw new Error('샘플 이미지 요소가 없습니다.');
+
+    expect(designElementSchema.safeParse({ ...image, cropZoom: 0.99 }).success).toBe(false);
+    expect(designElementSchema.safeParse({ ...image, cropZoom: 3.01 }).success).toBe(false);
+    expect(designElementSchema.safeParse({ ...image, cropX: -1.01 }).success).toBe(false);
+    expect(designElementSchema.safeParse({ ...image, cropY: 1.01 }).success).toBe(false);
+    expect(designElementSchema.safeParse({ ...image, cropZoom: 3, cropX: -1, cropY: 1 }).success).toBe(true);
   });
 
   it.each(elementVariants)(
