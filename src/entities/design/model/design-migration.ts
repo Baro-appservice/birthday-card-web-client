@@ -9,6 +9,7 @@ import {
 import { DESIGN_VERSION, type Design } from './design';
 import type { DesignElement } from './element';
 import { designSchema, designV1Schema, designV2Schema } from './design-schema';
+import { clampImageCropFocus, clampImageCropZoom } from './image-crop-policy';
 import { clampTextFontSize } from './text-policy';
 
 const APPROVED_FONT_FAMILIES = new Set(['system-ui', 'Arial', 'Georgia']);
@@ -20,6 +21,7 @@ type SafeParseResult =
 type PersistedSchema = { safeParse(input: unknown): SafeParseResult };
 type MigrationStep = (input: unknown) => unknown;
 type DesignV1 = z.infer<typeof designV1Schema>;
+type DesignV2 = z.infer<typeof designV2Schema>;
 
 type VersionMigrationResult =
   | { status: 'ok'; value: unknown }
@@ -64,6 +66,20 @@ function migrateV1ToV2(input: unknown): unknown {
   };
 }
 
+function migrateV2ToV3(input: unknown): unknown {
+  const design = input as DesignV2;
+  return {
+    ...design,
+    version: 3 as const,
+    pages: design.pages.map((page) => ({
+      ...page,
+      elements: page.elements.map((element) => element.type === 'image'
+        ? { ...element, cropZoom: 1, cropX: 0, cropY: 0 }
+        : element),
+    })),
+  };
+}
+
 /** Keep every shipped schema registered so each migration parses its source exactly. */
 const persistedSchemas = new Map<number, PersistedSchema>([
   [1, designV1Schema],
@@ -73,6 +89,7 @@ const persistedSchemas = new Map<number, PersistedSchema>([
 /** Key = source version. Every migration upgrades exactly one version. */
 const migrationSteps = new Map<number, MigrationStep>([
   [1, migrateV1ToV2],
+  [2, migrateV2ToV3],
 ]);
 
 function rotationOffset(x: number, y: number, degrees: number) {
@@ -131,7 +148,21 @@ function normalizeElement(element: DesignElement): { element: DesignElement; cha
       changed: true,
     };
   }
-  return { element, changed: false };
+
+  const cropZoom = clampImageCropZoom(element.cropZoom ?? 1);
+  const cropX = clampImageCropFocus(element.cropX ?? 0);
+  const cropY = clampImageCropFocus(element.cropY ?? 0);
+  if (
+    cropZoom === element.cropZoom
+    && cropX === element.cropX
+    && cropY === element.cropY
+  ) {
+    return { element, changed: false };
+  }
+  return {
+    element: { ...element, cropZoom, cropX, cropY },
+    changed: true,
+  };
 }
 
 export function normalizeDesign(design: Design): { design: Design; changed: boolean } {
