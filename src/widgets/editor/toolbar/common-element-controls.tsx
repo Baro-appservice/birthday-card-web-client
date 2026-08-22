@@ -92,11 +92,6 @@ export function CommonElementControls({
   const opacityHistoryGroupRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setOpacityDraft(Math.round(selected.opacity * 100));
-    opacityHistoryGroupRef.current = null;
-  }, [selected.id]);
-
-  useEffect(() => {
     if (!opacityHistoryGroupRef.current) {
       setOpacityDraft(Math.round(selected.opacity * 100));
     }
