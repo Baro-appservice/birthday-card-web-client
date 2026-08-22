@@ -94,7 +94,13 @@ export function CommonElementControls({
   useEffect(() => {
     setOpacityDraft(Math.round(selected.opacity * 100));
     opacityHistoryGroupRef.current = null;
-  }, [selected.id, selected.opacity]);
+  }, [selected.id]);
+
+  useEffect(() => {
+    if (!opacityHistoryGroupRef.current) {
+      setOpacityDraft(Math.round(selected.opacity * 100));
+    }
+  }, [selected.opacity]);
 
   const report = (error: unknown, fallback: string) => {
     setError(error instanceof Error ? error.message : fallback);
