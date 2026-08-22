@@ -1,14 +1,17 @@
 import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { StrictMode, type ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createSampleDesign } from '@/entities/design';
 import { EditorContext } from '@/features/editor/context/editor-context';
+import { clearEmergencyDesign } from '@/features/editor/persistence';
 import { SaveCoordinator } from '@/features/editor/persistence/save-coordinator';
 
 import { createEditorTestKit } from '../testing/editor-test-kit';
 import { EditorCanvas } from '@/widgets/editor/canvas/editor-canvas';
 import { useEditorSession } from './use-editor-session';
+
+afterEach(() => clearEmergencyDesign('local-demo'));
 
 describe('useEditorSession', () => {
   it('저장 문서가 없으면 샘플을 초기화하고 첫 저장을 예약한다', async () => {
