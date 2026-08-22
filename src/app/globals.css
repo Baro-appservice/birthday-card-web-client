@@ -4,6 +4,10 @@
   --brand: #7256d8;
   --brand-strong: #5a42b7;
   --brand-soft: #e8e1ff;
+  --party-coral: #ff5d73;
+  --party-yellow: #ffd84d;
+  --party-blue: #5b7cfa;
+  --party-mint: #55d6be;
   --celebration-pink: #ff7fa6;
   --surface: #fffbfe;
   --surface-muted: #f8f5fa;
@@ -27,4 +31,143 @@ body {
   margin: 0;
   background: var(--workspace);
   color: var(--ink);
+  font-family: Avenir Next, Pretendard, Apple SD Gothic Neo, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.party-shell {
+  background:
+    radial-gradient(circle at 13% 17%, rgb(255 216 77 / 20%) 0 7rem, transparent 7.1rem),
+    radial-gradient(circle at 88% 82%, rgb(85 214 190 / 17%) 0 10rem, transparent 10.1rem),
+    linear-gradient(135deg, #faf7ff 0%, #f5f0ff 50%, #fff7f4 100%);
+}
+
+.party-topbar {
+  position: relative;
+  z-index: 30;
+  border-bottom: 1px solid rgb(222 215 238 / 82%);
+  background: rgb(255 253 248 / 88%);
+  box-shadow: 0 6px 24px rgb(37 33 59 / 6%);
+  backdrop-filter: blur(18px);
+}
+
+.party-brand-mark {
+  position: relative;
+  transform: rotate(-6deg);
+  border: 2px solid var(--ink);
+  background: var(--party-yellow);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--party-blue);
+}
+
+.party-brand-mark::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--party-coral);
+}
+
+.party-workspace {
+  position: relative;
+  isolation: isolate;
+}
+
+.party-confetti {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.party-confetti > span {
+  position: absolute;
+  display: block;
+  width: 13px;
+  height: 30px;
+  border-radius: 4px;
+  opacity: 0.9;
+}
+
+.party-confetti > span:nth-child(1) { top: 12%; left: 8%; background: var(--party-coral); transform: rotate(24deg); }
+.party-confetti > span:nth-child(2) { top: 25%; right: 8%; width: 24px; height: 24px; border-radius: 999px; background: var(--party-yellow); }
+.party-confetti > span:nth-child(3) { bottom: 18%; left: 11%; background: var(--party-blue); transform: rotate(68deg); }
+.party-confetti > span:nth-child(4) { right: 12%; bottom: 10%; width: 28px; height: 10px; background: var(--party-mint); transform: rotate(-28deg); }
+.party-confetti > span:nth-child(5) { top: 8%; right: 22%; width: 10px; height: 10px; background: var(--party-blue); transform: rotate(45deg); }
+.party-confetti > span:nth-child(6) { bottom: 30%; left: 4%; width: 18px; height: 18px; border: 5px solid var(--party-mint); border-radius: 999px; }
+
+.home-party {
+  --brand: var(--party-coral);
+  --brand-strong: #e9425b;
+  --brand-soft: #ffe3e8;
+  min-height: 100dvh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 8% 12%, rgb(255 216 77 / 32%) 0 11rem, transparent 11.1rem),
+    radial-gradient(circle at 92% 18%, rgb(85 214 190 / 24%) 0 12rem, transparent 12.1rem),
+    linear-gradient(145deg, #fffdf8 0%, #f8f2ff 56%, #fff0f2 100%);
+}
+
+.home-party > .party-confetti {
+  z-index: 0;
+}
+
+.home-card-preview {
+  position: relative;
+  transform: rotate(3deg);
+  border: 3px solid var(--ink);
+  box-shadow: 18px 18px 0 var(--party-blue), 36px 36px 0 var(--party-yellow);
+}
+
+.home-card-preview::before,
+.home-card-preview::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  border-radius: 999px;
+}
+
+.home-card-preview::before {
+  inset: -3rem -2rem auto auto;
+  width: 6rem;
+  height: 6rem;
+  background: var(--party-mint);
+}
+
+.home-card-preview::after {
+  inset: auto auto -2.5rem -2.5rem;
+  width: 5rem;
+  height: 5rem;
+  background: var(--party-coral);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .party-brand-mark {
+    animation: party-pop 520ms cubic-bezier(.2, .8, .2, 1) both;
+  }
+
+  .party-cta {
+    transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+  }
+
+  .party-cta:hover {
+    transform: translateY(-2px) rotate(-1deg);
+  }
+}
+
+@keyframes party-pop {
+  from { opacity: 0; transform: scale(.7) rotate(-16deg); }
+  to { opacity: 1; transform: scale(1) rotate(-6deg); }
+}
+
+@media (max-width: 767px) {
+  .party-confetti > span:nth-child(2),
+  .party-confetti > span:nth-child(5),
+  .party-confetti > span:nth-child(6) {
+    display: none;
+  }
 }

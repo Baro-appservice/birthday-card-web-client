@@ -160,7 +160,7 @@ function EditorResponsiveLayout({ cardId }: { cardId: string }) {
   }, [saveCoordinator, saveStatus]);
 
   return (
-    <main className="grid min-h-dvh grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--workspace)]">
+    <main className="party-shell grid min-h-dvh grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--workspace)]">
       <EditorTopbar cardId={cardId} compact={isMobile} />
       <div className={`grid min-h-0 ${isMobile || isTablet ? 'grid-cols-[minmax(0,1fr)]' : 'grid-cols-[minmax(17.5rem,22rem)_minmax(0,1fr)]'}`}>
         {!isMobile && !isTablet ? <div role="navigation" aria-label="데스크톱 편집 도구"><EditorSidebar /></div> : null}
@@ -178,8 +178,11 @@ function EditorWorkspace({ showContextualToolbar }: { showContextualToolbar: boo
   const editor = useEditor();
   const zoom = useEditorRuntimeStore((state) => state.zoom);
   return (
-    <section data-testid="editor-workspace" aria-label="카드 편집 영역" className="flex min-h-0 min-w-0 flex-col overflow-hidden p-3 sm:p-5 lg:p-8">
-      <div className="mx-auto flex h-full min-h-0 w-full min-w-0 flex-col items-center gap-3 sm:gap-4">
+    <section data-testid="editor-workspace" aria-label="카드 편집 영역" className="party-workspace flex min-h-0 min-w-0 flex-col overflow-hidden p-3 sm:p-5 lg:p-8">
+      <div data-testid="party-confetti" aria-hidden="true" className="party-confetti">
+        <span /><span /><span /><span /><span /><span />
+      </div>
+      <div className="relative z-10 mx-auto flex h-full min-h-0 w-full min-w-0 flex-col items-center gap-3 sm:gap-4">
         <div className="w-full max-w-[720px]">{showContextualToolbar ? <ContextualToolbar /> : <div className="min-h-0" />}</div>
         <div
           data-testid="editor-canvas-viewport"

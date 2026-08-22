@@ -200,6 +200,16 @@ describe('EditorScreen responsive composition', () => {
     expect(screen.getByTestId('editor-canvas-zoom-stage')).toHaveStyle({ '--editor-zoom': '1' });
   });
 
+  it('캔버스 주변 파티 장식은 편집 콘텐츠와 분리해 보조 기술에서 숨긴다', async () => {
+    installMatchMedia(1280);
+    const kit = createEditorTestKit();
+    render(<EditorScreen cardId="local-demo" assemblyFactory={assemblyFactoryFor(kit)} />);
+
+    await screen.findByRole('navigation', { name: '데스크톱 편집 도구' });
+    expect(screen.getByTestId('party-confetti')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByLabelText('카드 편집 영역')).toBeInTheDocument();
+  });
+
   it('25%에서 200%까지 layout stage만 바꾸고 같은 Canvas를 유지한다', async () => {
     installMatchMedia(1280);
     const user = userEvent.setup();

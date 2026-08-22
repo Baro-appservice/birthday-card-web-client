@@ -33,6 +33,15 @@ describe('desktop editor tools', () => {
     expect(screen.getByRole('button', { name: '사진' })).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('파티 장식은 실제 편집 버튼과 속성 도구에 적용하지 않는다', () => {
+    const kit = createEditorTestKit();
+    kit.runtimeStore.getState().setSelectedElementIds(['title']);
+    render(<><EditorSidebar /><ContextualToolbar /></>, { wrapper: kit.wrapper });
+
+    expect(screen.getByRole('button', { name: '텍스트' })).not.toHaveClass('party-tool-button');
+    expect(screen.getByLabelText('선택 도구')).not.toHaveClass('party-floating-panel');
+  });
+
   it('사진 업로드 실패 시 ImageElement를 추가하지 않고 오류를 알린다', async () => {
     const user = userEvent.setup({ applyAccept: false });
     const kit = createEditorTestKit();
