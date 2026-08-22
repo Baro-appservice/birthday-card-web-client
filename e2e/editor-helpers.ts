@@ -9,9 +9,14 @@ export interface StoredElement {
   y: number;
   width: number;
   height: number;
+  rotation?: number;
+  opacity?: number;
   text?: string;
   fontSize?: number;
   assetId?: string;
+  cropZoom?: number;
+  cropX?: number;
+  cropY?: number;
 }
 
 export interface StoredDesign {
@@ -71,7 +76,7 @@ export async function waitForInitialDesignSave(page: Page, cardId: string): Prom
   await expect.poll(async () => {
     const record = await readDesignRecord(page, cardId);
     const current = record?.current as Partial<StoredDesign> | undefined;
-    return current?.version === 2 && current.width === 1080 && current.height === 1350;
+    return current?.version === 3 && current.width === 1080 && current.height === 1350;
   }).toBe(true);
 }
 
@@ -103,6 +108,31 @@ export function findElement(design: StoredDesign, elementId: string): StoredElem
   const element = design.pages[0]?.elements.find((candidate) => candidate.id === elementId);
   if (!element) throw new Error(`저장 요소가 없습니다: ${elementId}`);
   return element;
+}
+
+export function asLegacyV1(design: StoredDesign): StoredDesign {
+  return {
+    ...structuredClone(design),
+    version: 1,
+    pages: design.pages.map((page) => ({
+      ...structuredClone(page),
+      elements: page.elements.map((element) => {
+        if (element.type !== 'image') return structuredClone(element);
+        const legacy: StoredElement = {
+          id: element.id,
+          type: element.type,
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+          assetId: element.assetId,
+        };
+        if (element.rotation !== undefined) legacy.rotation = element.rotation;
+        if (element.opacity !== undefined) legacy.opacity = element.opacity;
+        return legacy;
+      }),
+    })),
+  };
 }
 
 async function canvasMetrics(page: Page) {
@@ -222,15 +252,16 @@ export async function expectZoomEdgesAndCanvasIdentity(page: Page): Promise<void
     const endViewport = viewport.getBoundingClientRect();
     const endStage = stage.getBoundingClientRect();
     return {
-      ...start,
-      right: endStage.right - endViewport.right,
-      bottom: endStage.bottom - endViewport.bottom,
-      canvasIdentity: document.querySelector<HTMLCanvasElement>('canvas[aria-label="생일 카드 편집 캔버스"]')?.dataset.zoomIdentity,
+      start,
+      end: {
+        right: endViewport.right - endStage.right,
+        bottom: endViewport.bottom - endStage.bottom,
+      },
     };
   });
-  expect(edges.left).toBeGreaterThanOrEqual(0);
-  expect(edges.top).toBeGreaterThanOrEqual(0);
-  expect(edges.right).toBeLessThanOrEqual(0);
-  expect(edges.bottom).toBeLessThanOrEqual(0);
-  expect(edges.canvasIdentity).toBe('stable');
+  expect(Math.abs(edges.start.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(edges.start.top)).toBeLessThanOrEqual(1);
+  expect(Math.abs(edges.end.right)).toBeLessThanOrEqual(1);
+  expect(Math.abs(edges.end.bottom)).toBeLessThanOrEqual(1);
+  await expect(canvas).toHaveAttribute('data-zoom-identity', 'stable');
 }
