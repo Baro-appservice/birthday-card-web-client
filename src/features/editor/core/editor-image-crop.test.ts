@@ -54,6 +54,7 @@ describe('Editor image crop', () => {
     });
     vi.mocked(kit.assetGateway.upload).mockResolvedValue({
       id: 'asset:replacement',
+      mimeType: 'image/png',
       width: 1200,
       height: 800,
     });
