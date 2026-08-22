@@ -25,13 +25,13 @@ describe('emergency design store', () => {
     expect(result.status).toBe('loaded');
     if (result.status === 'loaded') {
       expect(result.record.design).toEqual(design);
-      expect(result.record.design.version).toBe(2);
+      expect(result.record.design.version).toBe(3);
       expect(result.record.updatedAt).toBeGreaterThan(0);
     }
   });
 
   it('미래 버전 emergency snapshot은 구버전 클라이언트가 삭제하지 않는다', () => {
-    const design = { ...createSampleDesign(), version: 3 };
+    const design = { ...createSampleDesign(), version: 4 };
     const raw = JSON.stringify({ design, updatedAt: Date.now() });
     localStorage.setItem(key, raw);
 
