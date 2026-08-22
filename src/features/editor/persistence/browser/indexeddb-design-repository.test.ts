@@ -25,9 +25,36 @@ async function replaceCurrent(
 ) {
   const transaction = db.transaction('design-records', 'readwrite');
   const store = transaction.objectStore('design-records');
-  const record = await requestToPromise<DesignRecord>(store.get(cardId));
-  store.put({ ...record, current, ...(backup === undefined ? {} : { backup }) });
+  const request = store.get(cardId);
+  request.onsuccess = () => {
+    const record = request.result as DesignRecord;
+    store.put({ ...record, current, ...(backup === undefined ? {} : { backup }) });
+  };
   await transactionDone(transaction);
+}
+
+function legacyV1FromCurrent(design: Design) {
+  return {
+    ...structuredClone(design),
+    version: 1,
+    pages: design.pages.map((page) => ({
+      ...structuredClone(page),
+      elements: page.elements.map((element) => {
+        if (element.type !== 'image') return structuredClone(element);
+        return {
+          id: element.id,
+          type: element.type,
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+          rotation: element.rotation,
+          opacity: element.opacity,
+          assetId: element.assetId,
+        };
+      }),
+    })),
+  };
 }
 
 async function closeAndDelete(db: IDBDatabase) {
@@ -41,6 +68,24 @@ async function closeAndDelete(db: IDBDatabase) {
 }
 
 describe('IndexedDbDesignRepository', () => {
+  it('유효한 v1 current를 v3로 migrate하고 재저장이 필요하다고 표시한다', async () => {
+    const db = await openTestDb();
+    const repository = new IndexedDbDesignRepository(db);
+    const current = createSampleDesign();
+    await repository.save('local-demo', current);
+    await replaceCurrent(db, 'local-demo', legacyV1FromCurrent(current));
+
+    const result = await repository.load('local-demo');
+
+    expect(result).toMatchObject({ status: 'loaded', needsSave: true });
+    if (result.status !== 'loaded') throw new Error('v1 current를 불러오지 못했습니다.');
+    expect(result.design.version).toBe(3);
+    expect(result.design.pages[0].elements.find((element) => element.id === 'photo'))
+      .toMatchObject({ cropZoom: 1, cropFocusX: 0, cropFocusY: 0 });
+    expect(result.updatedAt).toEqual(expect.any(Number));
+    await closeAndDelete(db);
+  });
+
   it('두 번째 저장 뒤 current가 손상되면 직전 정상 문서를 backup으로 제시한다', async () => {
     const db = await openTestDb();
     const repository = new IndexedDbDesignRepository(db);
@@ -59,10 +104,11 @@ describe('IndexedDbDesignRepository', () => {
       pages: [],
     });
 
-    await expect(repository.load('local-demo')).resolves.toEqual({
+    await expect(repository.load('local-demo')).resolves.toMatchObject({
       status: 'recoverable',
       reason: 'corrupt',
       backup: first,
+      updatedAt: expect.any(Number),
     });
     await closeAndDelete(db);
   });
@@ -80,10 +126,11 @@ describe('IndexedDbDesignRepository', () => {
     await repository.save('local-demo', second);
     await replaceCurrent(db, 'local-demo', { version: 999 });
 
-    await expect(repository.load('local-demo')).resolves.toEqual({
+    await expect(repository.load('local-demo')).resolves.toMatchObject({
       status: 'recoverable',
       reason: 'unsupported-version',
       backup: first,
+      updatedAt: expect.any(Number),
     });
     await closeAndDelete(db);
   });
@@ -105,10 +152,11 @@ describe('IndexedDbDesignRepository', () => {
       pages: [],
     });
 
-    await expect(repository.load('local-demo')).resolves.toEqual({
+    await expect(repository.load('local-demo')).resolves.toMatchObject({
       status: 'recoverable',
       reason: 'corrupt',
       backup: stable,
+      updatedAt: expect.any(Number),
     });
     await closeAndDelete(db);
   });
@@ -125,10 +173,11 @@ describe('IndexedDbDesignRepository', () => {
     });
     await replaceCurrent(db, 'local-demo', { version: 999 }, { version: 1 });
 
-    await expect(repository.load('local-demo')).resolves.toEqual({
+    await expect(repository.load('local-demo')).resolves.toMatchObject({
       status: 'recoverable',
       reason: 'unsupported-version',
       backup: null,
+      updatedAt: expect.any(Number),
     });
     await closeAndDelete(db);
   });
@@ -152,10 +201,11 @@ describe('IndexedDbDesignRepository', () => {
     await repository.save('local-demo', next);
     await replaceCurrent(db, 'local-demo', { version: 999 });
 
-    await expect(repository.load('local-demo')).resolves.toEqual({
+    await expect(repository.load('local-demo')).resolves.toMatchObject({
       status: 'recoverable',
       reason: 'unsupported-version',
       backup: stable,
+      updatedAt: expect.any(Number),
     });
     await closeAndDelete(db);
   });

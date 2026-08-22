@@ -7,9 +7,11 @@ import { Editor } from '@/features/editor/core/editor';
 import { FabricDesignExporter, FabricEditorRenderer } from '@/features/editor/fabric';
 import {
   BrowserAssetGateway,
+  clearEmergencyDesign,
   IndexedDbDesignRepository,
   openEditorDb,
   SaveCoordinator,
+  writeEmergencyDesign,
 } from '@/features/editor/persistence';
 import { createDesignStore } from '@/features/editor/model/design-store';
 import { createEditorRuntimeStore } from '@/features/editor/model/editor-runtime-store';
@@ -42,7 +44,9 @@ export async function createBrowserEditorAssembly(cardId: string): Promise<Edito
   const uiStore = createEditorUiStore();
   const repository = new IndexedDbDesignRepository(database);
   const assetGateway = new BrowserAssetGateway(database);
-  const saveCoordinator = new SaveCoordinator(cardId, repository, uiStore);
+  const saveCoordinator = new SaveCoordinator(cardId, repository, uiStore, {
+    onLatestSaveSuccess: () => clearEmergencyDesign(cardId),
+  });
   const renderer = new FabricEditorRenderer(assetGateway);
   const editor = new Editor({
     designStore,
@@ -51,7 +55,10 @@ export async function createBrowserEditorAssembly(cardId: string): Promise<Edito
     assetGateway,
     exporter: new FabricDesignExporter(assetGateway),
     idGenerator: () => crypto.randomUUID(),
-    onDocumentChange: (design) => saveCoordinator.schedule(design),
+    onDocumentChange: (design) => {
+      writeEmergencyDesign(cardId, design);
+      saveCoordinator.schedule(design);
+    },
   });
 
   return {
@@ -81,9 +88,25 @@ async function runCleanupStep(step: () => void | Promise<void>): Promise<void> {
 async function disposeEditorAssembly(assembly: EditorAssembly): Promise<void> {
   if (disposedAssemblies.has(assembly)) return;
   disposedAssemblies.add(assembly);
+
+  // Yield once so descendant effect cleanups can synchronously enqueue their
+  // final targeted text commits before we append the Editor queue-drain barrier.
+  // React completes the current unmount cleanup pass before this microtask runs.
+  await Promise.resolve();
+
+  // Drain the Editor operation queue first. A mutation that was still rendering
+  // when unmount started may schedule a brand-new save only after it completes.
+  // Maintenance also runs GC while in-memory Design/history and IndexedDB are
+  // still alive, so assets needed by current state or Undo/Redo stay protected.
+  await runCleanupStep(() => assembly.value.editor.flushMaintenance());
+
+  // Only now is the save queue stable. Flush the last Design scheduled by any
+  // operation drained above before disposing the coordinator.
   await runCleanupStep(() => assembly.value.saveCoordinator.flush());
   await runCleanupStep(() => assembly.value.saveCoordinator.dispose());
-  await runCleanupStep(() => assembly.value.editor.dispose());
+
+  // Await Fabric Canvas.dispose() before revoking asset URLs and closing IndexedDB.
+  await runCleanupStep(() => assembly.value.editor.close());
   await runCleanupStep(() => assembly.disposeAssetGateway());
   await runCleanupStep(() => assembly.closeDatabase());
 }

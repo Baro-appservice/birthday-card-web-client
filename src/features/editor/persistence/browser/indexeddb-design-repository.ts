@@ -1,4 +1,8 @@
-import { designSchema, type Design } from '@/entities/design';
+import {
+  migratePersistedDesign,
+  prepareDesignForPersistence,
+  type Design,
+} from '@/entities/design';
 import type { DesignLoadResult, DesignRepository } from '@/features/editor/core/ports';
 
 import {
@@ -14,21 +18,18 @@ export interface DesignRecord {
   updatedAt: number;
 }
 
+type ProcessingError = { value: unknown } | null;
+
 function cloneDesign(design: Design): Design {
   return structuredClone(design);
 }
 
-function recoveryReason(current: unknown): 'corrupt' | 'unsupported-version' {
-  if (
-    typeof current === 'object'
-    && current !== null
-    && 'version' in current
-    && typeof current.version === 'number'
-    && current.version !== 1
-  ) {
-    return 'unsupported-version';
-  }
-  return 'corrupt';
+function validTimestamp(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function throwProcessingError(processingError: ProcessingError): void {
+  if (processingError) throw processingError.value;
 }
 
 export class IndexedDbDesignRepository implements DesignRepository {
@@ -48,22 +49,28 @@ export class IndexedDbDesignRepository implements DesignRepository {
     await transactionDone(transaction);
     if (!record) return { status: 'empty' };
 
-    const current = designSchema.safeParse(record.current);
-    if (current.success) {
-      return { status: 'loaded', design: cloneDesign(current.data) };
+    const updatedAt = validTimestamp(record.updatedAt);
+    const current = migratePersistedDesign(record.current);
+    if (current.status === 'ok') {
+      return {
+        status: 'loaded',
+        design: cloneDesign(current.design),
+        updatedAt,
+        needsSave: current.changed,
+      };
     }
 
-    const backup = designSchema.safeParse(record.backup);
+    const backup = migratePersistedDesign(record.backup);
     return {
       status: 'recoverable',
-      reason: recoveryReason(record.current),
-      backup: backup.success ? cloneDesign(backup.data) : null,
+      reason: current.reason,
+      backup: backup.status === 'ok' ? cloneDesign(backup.design) : null,
+      updatedAt,
     };
   }
 
   async save(cardId: string, design: Design): Promise<void> {
-    const parsed = designSchema.parse(design);
-    const current = cloneDesign(parsed);
+    const current = prepareDesignForPersistence(design);
     let transaction: IDBTransaction;
     try {
       transaction = this.database.transaction(DESIGN_RECORDS_STORE, 'readwrite');
@@ -72,19 +79,39 @@ export class IndexedDbDesignRepository implements DesignRepository {
     }
 
     const store = transaction.objectStore(DESIGN_RECORDS_STORE);
-    const previous = await requestToPromise<DesignRecord | undefined>(store.get(cardId));
-    const previousCurrent = designSchema.safeParse(previous?.current);
-    const previousBackup = designSchema.safeParse(previous?.backup);
-    store.put({
-      cardId,
-      current,
-      backup: previousCurrent.success
-        ? cloneDesign(previousCurrent.data)
-        : previousBackup.success
-          ? cloneDesign(previousBackup.data)
-          : null,
-      updatedAt: Date.now(),
-    } satisfies DesignRecord);
-    await transactionDone(transaction);
+    let processingError: ProcessingError = null;
+    const request = store.get(cardId);
+
+    // Safari/WebKit may auto-commit an IndexedDB transaction as soon as the
+    // request callback returns to the event loop. Queue the dependent put
+    // synchronously inside onsuccess rather than awaiting get() first.
+    request.onsuccess = () => {
+      try {
+        const previous = request.result as DesignRecord | undefined;
+        const previousCurrent = migratePersistedDesign(previous?.current);
+        const previousBackup = migratePersistedDesign(previous?.backup);
+        store.put({
+          cardId,
+          current,
+          backup: previousCurrent.status === 'ok'
+            ? cloneDesign(previousCurrent.design)
+            : previousBackup.status === 'ok'
+              ? cloneDesign(previousBackup.design)
+              : null,
+          updatedAt: Date.now(),
+        } satisfies DesignRecord);
+      } catch (error) {
+        processingError = { value: error };
+        try { transaction.abort(); } catch { /* transaction may already be aborting */ }
+      }
+    };
+
+    try {
+      await transactionDone(transaction);
+    } catch (error) {
+      throwProcessingError(processingError);
+      throw error;
+    }
+    throwProcessingError(processingError);
   }
 }

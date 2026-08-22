@@ -163,7 +163,7 @@ describe('EditorScreen responsive composition', () => {
     expect(drawerTrigger).toHaveFocus();
   });
 
-  it('모바일 property variant는 layer 정밀 동작 없이 44px control contract를 적용하고 물리 키보드를 처리한다', async () => {
+  it('모바일 property variant는 레이어 동작까지 44px control contract를 적용하고 물리 키보드를 처리한다', async () => {
     installMatchMedia(390);
     const kit = createEditorTestKit();
     const undo = vi.spyOn(kit.editor, 'undo');
@@ -175,10 +175,14 @@ describe('EditorScreen responsive composition', () => {
 
     act(() => kit.runtimeStore.getState().setSelectedElementIds(['title']));
     const sheet = await screen.findByRole('dialog', { name: '선택한 요소 편집' });
-    expect(screen.queryByRole('button', { name: '앞으로' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '뒤로' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '앞으로' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '뒤로' })).toBeInTheDocument();
     for (const control of sheet.querySelectorAll('button, select, input:not([type="file"])')) {
-      expect(control).toHaveClass('property-touch-target');
+      if (control instanceof HTMLInputElement && control.type === 'range') {
+        expect(control).toHaveClass('min-h-11');
+      } else {
+        expect(control).toHaveClass('property-touch-target');
+      }
     }
   });
 

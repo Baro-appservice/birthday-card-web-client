@@ -8,6 +8,7 @@ import {
   useEditor,
   useEditorAssemblyRetry,
   useEditorRuntimeStore,
+  useEditorSaveCoordinator,
   useEditorUiStore,
 } from '@/features/editor/hooks/use-editor';
 import { useEditorSession } from '@/features/editor/hooks/use-editor-session';
@@ -117,11 +118,46 @@ function EditorResponsiveLayout({ cardId }: { cardId: string }) {
   const isMobile = useMediaQuery('(max-width: 767px)');
   const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
   const editor = useEditor();
+  const saveCoordinator = useEditorSaveCoordinator();
+  const saveStatus = useEditorUiStore((state) => state.saveStatus);
   const setError = useEditorUiStore((state) => state.setError);
   useKeyboardShortcuts(editor, {
     enabled: true,
     onError: setError,
   });
+
+  useEffect(() => {
+    const flushWhenHidden = () => {
+      if (document.visibilityState === 'hidden') void saveCoordinator.flush();
+    };
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (saveStatus !== 'error') return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const guardInternalNavigation = (event: MouseEvent) => {
+      if (saveStatus !== 'error' || event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null;
+      if (!target || target.target === '_blank' || target.hasAttribute('download')) return;
+      const destination = new URL(target.href, window.location.href);
+      if (destination.origin !== window.location.origin) return;
+      const proceed = window.confirm('마지막 변경을 저장하지 못했습니다. 복구용 사본은 남겨두었습니다. 그래도 이동할까요?');
+      if (!proceed) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    document.addEventListener('visibilitychange', flushWhenHidden);
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    document.addEventListener('click', guardInternalNavigation, true);
+    return () => {
+      document.removeEventListener('visibilitychange', flushWhenHidden);
+      window.removeEventListener('beforeunload', warnBeforeUnload);
+      document.removeEventListener('click', guardInternalNavigation, true);
+    };
+  }, [saveCoordinator, saveStatus]);
 
   return (
     <main className="grid min-h-dvh grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--workspace)]">
@@ -215,6 +251,11 @@ function MobileActionSheet() {
   const mobileSheet = useEditorUiStore((state) => state.mobileSheet);
   const setMobileSheet = useEditorUiStore((state) => state.setMobileSheet);
   const selectedElementIds = useEditorRuntimeStore((state) => state.selectedElementIds);
+
+  useEffect(() => {
+    if (mobileSheet && selectedElementIds.length > 0) setMobileSheet(null);
+  }, [mobileSheet, selectedElementIds.length, setMobileSheet]);
+
   if (!mobileSheet || selectedElementIds.length > 0) return null;
   const panel = mobileSheet === 'text' ? <TextPanel /> : mobileSheet === 'image' ? <ImagePanel /> : <ShapePanel />;
   const title = mobileSheet === 'text' ? '텍스트 추가' : mobileSheet === 'image' ? '사진 추가' : '도형 추가';
@@ -224,11 +265,27 @@ function MobileActionSheet() {
 function ResponsiveSelectionSheet() {
   const selectedElementIds = useEditorRuntimeStore((state) => state.selectedElementIds);
   const selectedId = selectedElementIds.length === 1 ? selectedElementIds[0] : null;
-  const [dismissedId, setDismissedId] = useState<string | null>(null);
 
-  if (!selectedId || dismissedId === selectedId) return null;
+  if (!selectedId) return null;
+  return <ResponsiveSelectionInspector key={selectedId} />;
+}
+
+function ResponsiveSelectionInspector() {
+  const [open, setOpen] = useState(true);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        aria-label="선택한 요소 속성 열기"
+        onClick={() => setOpen(true)}
+        className="fixed bottom-20 right-4 z-30 min-h-11 min-w-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--ink)] shadow-[var(--shadow-float)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] md:bottom-4"
+      >속성</button>
+    );
+  }
+
   return (
-    <PropertySheet title="선택한 요소 편집" onClose={() => setDismissedId(selectedId)}>
+    <PropertySheet title="선택한 요소 편집" onClose={() => setOpen(false)}>
       <ContextualToolbar variant="property" />
     </PropertySheet>
   );

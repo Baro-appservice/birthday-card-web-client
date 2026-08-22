@@ -9,6 +9,13 @@ export {
 } from './browser/editor-db';
 export { BrowserAssetGateway } from './browser/browser-asset-gateway';
 export {
+  clearEmergencyDesign,
+  type EmergencyDesignLoadResult,
+  type EmergencyDesignRecord,
+  readEmergencyDesign,
+  writeEmergencyDesign,
+} from './browser/emergency-design-store';
+export {
   type DesignRecord,
   IndexedDbDesignRepository,
 } from './browser/indexeddb-design-repository';

@@ -40,6 +40,9 @@ const elementVariants = [
       rotation: 0,
       opacity: 1,
       assetId: '550e8400-e29b-41d4-a716-446655440000',
+      cropZoom: 1,
+      cropFocusX: 0,
+      cropFocusY: 0,
     },
     coreField: 'assetId',
     invalidCoreValue: 123,
@@ -68,11 +71,11 @@ const elementVariants = [
 ] as const;
 
 describe('designSchema', () => {
-  it('자기 생일 샘플은 유효한 1080x1350 문서다', () => {
+  it('자기 생일 샘플은 유효한 1080x1350 v3 문서다', () => {
     const design = createSampleDesign();
 
     expect(designSchema.parse(design)).toMatchObject({
-      version: 1,
+      version: 3,
       width: 1080,
       height: 1350,
     });
@@ -146,6 +149,22 @@ describe('designSchema', () => {
     ).toBe(false);
   });
 
+  it('이미지 crop 범위를 벗어난 저장 값은 거부한다', () => {
+    const image = createSampleDesign().pages[0].elements.find((element) => element.type === 'image');
+    if (!image || image.type !== 'image') throw new Error('샘플 이미지 요소가 없습니다.');
+
+    expect(designElementSchema.safeParse({ ...image, cropZoom: 0.99 }).success).toBe(false);
+    expect(designElementSchema.safeParse({ ...image, cropZoom: 3.01 }).success).toBe(false);
+    expect(designElementSchema.safeParse({ ...image, cropFocusX: -1.01 }).success).toBe(false);
+    expect(designElementSchema.safeParse({ ...image, cropFocusY: 1.01 }).success).toBe(false);
+    expect(designElementSchema.safeParse({
+      ...image,
+      cropZoom: 3,
+      cropFocusX: -1,
+      cropFocusY: 1,
+    }).success).toBe(true);
+  });
+
   it.each(elementVariants)(
     '$name 요소는 정상 입력만 받고 unknown key, 잘못된 핵심 타입, enum과 discriminant를 거부한다',
     ({
@@ -186,7 +205,8 @@ describe('designSchema', () => {
     expect(designSchema.safeParse({
       ...createSampleDesign(),
       pages: [],
-    }).success).toBe(false);
+    }).success,
+    ).toBe(false);
   });
 
   it('샘플의 모든 텍스트는 승인된 기본 글꼴 system-ui를 사용한다', () => {

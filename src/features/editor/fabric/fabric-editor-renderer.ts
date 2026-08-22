@@ -1,33 +1,155 @@
-import type { Design } from '@/entities/design';
-import type { AssetGateway, EditorEvent, EditorRenderer } from '@/features/editor/core/ports';
-import { Canvas, type FabricObject } from 'fabric';
+import type { Design, DesignElement } from '@/entities/design';
+import type {
+  AssetGateway,
+  EditorElementBounds,
+  EditorEvent,
+  EditorRenderer,
+} from '@/features/editor/core/ports';
+import { Canvas, Ellipse, FabricImage, Rect, Textbox, type FabricObject } from 'fabric';
 
 import { FabricEventAdapter } from './fabric-event-adapter';
-import { pageToFabricObjects } from './fabric-element-mapper';
+import { applyImageCrop, elementToFabricObject } from './fabric-element-mapper';
 import { getElementId } from './fabric-object-metadata';
+
+const APPROVED_FONT_FAMILIES = new Set(['system-ui', 'Arial', 'Georgia']);
 
 function dedupe(ids: string[]): string[] {
   return [...new Set(ids)];
+}
+
+function canReuseObject(
+  object: FabricObject,
+  previous: DesignElement | undefined,
+  next: DesignElement,
+): boolean {
+  if (!previous || previous.type !== next.type) return false;
+
+  if (next.type === 'text') return object instanceof Textbox;
+  if (next.type === 'shape') {
+    if (previous.type !== 'shape' || previous.shape !== next.shape) return false;
+    return next.shape === 'rectangle' ? object instanceof Rect : object instanceof Ellipse;
+  }
+
+  if (previous.type !== 'image' || previous.assetId !== next.assetId) return false;
+  // Broken image placeholders are Rects. Keep them stable until the asset id changes
+  // instead of retrying the same failed decode on every unrelated document mutation.
+  return object instanceof FabricImage || object instanceof Rect;
+}
+
+function configureInteraction(object: FabricObject, element?: DesignElement): void {
+  object.set({
+    lockScalingFlip: true,
+    lockSkewingX: true,
+    lockSkewingY: true,
+  });
+  object.cornerSize = 14;
+  object.touchCornerSize = 32;
+  if (element?.type === 'text') {
+    object.setControlsVisibility({ mt: false, mb: false });
+  } else if (element?.type === 'shape' && element.shape === 'circle') {
+    object.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
+  }
+}
+
+function applyCommonProperties(object: FabricObject, element: DesignElement): void {
+  object.set({
+    left: element.x,
+    top: element.y,
+    angle: element.rotation,
+    opacity: element.opacity,
+  });
+  configureInteraction(object, element);
+}
+
+function patchObject(object: FabricObject, element: DesignElement): void {
+  applyCommonProperties(object, element);
+
+  if (element.type === 'text' && object instanceof Textbox) {
+    const editingOwnText = object.isEditing && object.text === element.text;
+    object.set({
+      ...(editingOwnText ? {} : { text: element.text }),
+      width: element.width,
+      fontFamily: APPROVED_FONT_FAMILIES.has(element.fontFamily)
+        ? element.fontFamily
+        : 'system-ui',
+      fontSize: element.fontSize,
+      fontWeight: element.fontWeight,
+      fill: element.color,
+      textAlign: element.textAlign,
+      scaleX: 1,
+      scaleY: 1,
+    });
+    if (!editingOwnText) object.initDimensions();
+  } else if (element.type === 'shape' && element.shape === 'rectangle' && object instanceof Rect) {
+    object.set({
+      width: element.width,
+      height: element.height,
+      fill: element.fill,
+      scaleX: 1,
+      scaleY: 1,
+    });
+  } else if (element.type === 'shape' && (element.shape === 'circle' || element.shape === 'ellipse') && object instanceof Ellipse) {
+    object.set({
+      rx: element.width / 2,
+      ry: element.height / 2,
+      fill: element.fill,
+      scaleX: 1,
+      scaleY: 1,
+    });
+  } else if (element.type === 'image' && object instanceof FabricImage) {
+    applyImageCrop(object, element);
+  } else if (element.type === 'image' && object instanceof Rect) {
+    object.set({
+      width: element.width,
+      height: element.height,
+      scaleX: 1,
+      scaleY: 1,
+    });
+  }
+
+  object.setCoords();
+}
+
+function sameObjectOrder(current: FabricObject[], next: FabricObject[]): boolean {
+  return current.length === next.length && current.every((object, index) => object === next[index]);
+}
+
+function disposeObjects(objects: Iterable<FabricObject>): void {
+  for (const object of objects) {
+    try {
+      object.dispose();
+    } catch {
+      // Disposal is best effort and must never turn a successful editor mutation
+      // into a failed transaction. The Canvas no longer owns these objects.
+    }
+  }
 }
 
 export class FabricEditorRenderer implements EditorRenderer {
   private canvas: Canvas | undefined;
   private eventAdapter: FabricEventAdapter | undefined;
   private readonly listeners = new Set<(event: EditorEvent) => void>();
+  private readonly objectsById = new Map<string, FabricObject>();
+  private readonly renderedElements = new Map<string, DesignElement>();
   private renderGeneration = 0;
   private disposed = false;
+  private disposePromise: Promise<void> | null = null;
+  private renderedSize: { width: number; height: number } | null = null;
+  private renderedBackground: string | null = null;
 
   constructor(private readonly assetGateway: Pick<AssetGateway, 'resolveUrl'>) {}
 
   mount(element: HTMLCanvasElement): void {
     this.assertUsable();
     if (this.canvas?.lowerCanvasEl === element) return;
-    this.releaseCanvas();
+    if (this.canvas) throw new Error('Fabric renderer가 이미 다른 Canvas에 mount되어 있습니다.');
     const canvas = new Canvas(element, {
       preserveObjectStacking: true,
       selection: false,
       selectionKey: null,
       altSelectionKey: null,
+      uniformScaling: true,
+      uniScaleKey: null,
     });
     this.canvas = canvas;
     this.eventAdapter = new FabricEventAdapter(canvas, (event) => this.emit(event));
@@ -40,25 +162,89 @@ export class FabricEditorRenderer implements EditorRenderer {
     const page = design.pages[0];
     if (!page) throw new Error('렌더링할 페이지가 없습니다.');
 
-    let objects: FabricObject[];
-    try {
-      objects = await pageToFabricObjects(page, this.assetGateway);
-    } catch (error) {
-      if (this.isCurrent(generation, canvas)) canvas.clear();
-      if (this.isCurrent(generation, canvas)) throw error;
+    const prepared = await Promise.all(page.elements.map(async (element) => {
+      const existing = this.objectsById.get(element.id);
+      const previous = this.renderedElements.get(element.id);
+      if (existing && canReuseObject(existing, previous, element)) {
+        return { element, previous, object: existing, reused: true };
+      }
+      const object = await elementToFabricObject(element, this.assetGateway);
+      configureInteraction(object, element);
+      return { element, previous, object, reused: false };
+    }));
+
+    if (!this.isCurrent(generation, canvas)) {
+      disposeObjects(prepared.filter((entry) => !entry.reused).map((entry) => entry.object));
       return;
     }
-    if (!this.isCurrent(generation, canvas)) return;
 
+    let retiredObjects: FabricObject[] = [];
+    let mapsCommitted = false;
     try {
-      canvas.clear();
-      canvas.setDimensions({ width: design.width, height: design.height });
-      canvas.backgroundColor = page.background;
-      canvas.add(...objects);
+      let visualChange = false;
+      for (const entry of prepared) {
+        // Store operations use immutable element replacement, so reference identity
+        // is a cheap and reliable change detector for retained runtime objects.
+        if (entry.reused && entry.previous !== entry.element) {
+          patchObject(entry.object, entry.element);
+          visualChange = true;
+        }
+      }
+
+      const nextObjects = prepared.map((entry) => entry.object);
+      const nextObjectSet = new Set(nextObjects);
+      const currentObjects = canvas.getObjects();
+      retiredObjects = currentObjects.filter((object) => !nextObjectSet.has(object));
+      if (retiredObjects.length > 0) {
+        // Keep removed objects alive until the new render fully commits. If a
+        // later Canvas step fails, Editor rollback can still reuse old objects.
+        canvas.remove(...retiredObjects);
+        visualChange = true;
+      }
+
+      const existingObjects = new Set(canvas.getObjects());
+      for (const object of nextObjects) {
+        if (!existingObjects.has(object)) {
+          canvas.add(object);
+          visualChange = true;
+        }
+      }
+
+      const objectsAfterMembershipChange = canvas.getObjects();
+      if (!sameObjectOrder(objectsAfterMembershipChange, nextObjects)) {
+        nextObjects.forEach((object, index) => canvas.moveObjectTo(object, index));
+        visualChange = true;
+      }
+
+      if (!this.renderedSize
+        || this.renderedSize.width !== design.width
+        || this.renderedSize.height !== design.height) {
+        canvas.setDimensions({ width: design.width, height: design.height });
+        this.renderedSize = { width: design.width, height: design.height };
+        visualChange = true;
+      }
+      if (this.renderedBackground !== page.background) {
+        canvas.backgroundColor = page.background;
+        this.renderedBackground = page.background;
+        visualChange = true;
+      }
+
+      this.objectsById.clear();
+      this.renderedElements.clear();
+      for (const entry of prepared) {
+        this.objectsById.set(entry.element.id, entry.object);
+        this.renderedElements.set(entry.element.id, entry.element);
+      }
+      mapsCommitted = true;
+
       this.select(selection);
-      canvas.requestRenderAll();
+      if (visualChange) canvas.requestRenderAll();
+      disposeObjects(retiredObjects);
     } catch (error) {
-      if (this.isCurrent(generation, canvas)) canvas.clear();
+      // Once maps have committed, old objects are no longer a rollback source and
+      // may be released. Before that point the old maps intentionally retain them.
+      if (mapsCommitted) disposeObjects(retiredObjects);
+      if (this.isCurrent(generation, canvas)) canvas.requestRenderAll();
       throw error;
     }
   }
@@ -67,11 +253,37 @@ export class FabricEditorRenderer implements EditorRenderer {
     const canvas = this.requireCanvas();
     const requested = dedupe(elementIds);
     const object = requested
-      .map((elementId) => canvas.getObjects().find((candidate) => getElementId(candidate) === elementId))
+      .map((elementId) => this.objectsById.get(elementId)
+        ?? canvas.getObjects().find((candidate) => getElementId(candidate) === elementId))
       .find((candidate): candidate is FabricObject => candidate !== undefined);
-    canvas.discardActiveObject();
-    if (object) canvas.setActiveObject(object);
+    const currentSelection = canvas.getActiveObjects();
+    if ((!object && currentSelection.length === 0)
+      || (object && currentSelection.length === 1 && currentSelection[0] === object)) {
+      return;
+    }
+
+    const changeSelection = () => {
+      canvas.discardActiveObject();
+      if (object) canvas.setActiveObject(object);
+    };
+    if (this.eventAdapter) this.eventAdapter.runWithoutSelectionEvents(changeSelection);
+    else changeSelection();
     canvas.requestRenderAll();
+  }
+
+  measureElement(elementId: string): EditorElementBounds | undefined {
+    const canvas = this.requireCanvas();
+    const object = this.objectsById.get(elementId)
+      ?? canvas.getObjects().find((candidate) => getElementId(candidate) === elementId);
+    if (!object) return undefined;
+    object.setCoords();
+    const bounds = object.getBoundingRect();
+    return {
+      left: bounds.left,
+      top: bounds.top,
+      width: bounds.width,
+      height: bounds.height,
+    };
   }
 
   subscribe(listener: (event: EditorEvent) => void): () => void {
@@ -80,12 +292,27 @@ export class FabricEditorRenderer implements EditorRenderer {
     return () => { this.listeners.delete(listener); };
   }
 
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.renderGeneration += 1;
-    this.listeners.clear();
-    this.releaseCanvas();
+  dispose(): Promise<void> {
+    if (this.disposePromise) return this.disposePromise;
+    if (!this.disposed) {
+      this.disposed = true;
+      this.renderGeneration += 1;
+      this.listeners.clear();
+    }
+
+    this.eventAdapter?.dispose();
+    this.eventAdapter = undefined;
+    this.objectsById.clear();
+    this.renderedElements.clear();
+    this.renderedSize = null;
+    this.renderedBackground = null;
+    const canvas = this.canvas;
+    this.canvas = undefined;
+
+    this.disposePromise = canvas
+      ? Promise.resolve(canvas.dispose()).then(() => undefined)
+      : Promise.resolve();
+    return this.disposePromise;
   }
 
   private emit(event: EditorEvent): void {
@@ -105,13 +332,5 @@ export class FabricEditorRenderer implements EditorRenderer {
 
   private isCurrent(generation: number, canvas: Canvas): boolean {
     return !this.disposed && this.renderGeneration === generation && this.canvas === canvas;
-  }
-
-  private releaseCanvas(): void {
-    this.eventAdapter?.dispose();
-    this.eventAdapter = undefined;
-    const canvas = this.canvas;
-    this.canvas = undefined;
-    if (canvas) void canvas.dispose();
   }
 }

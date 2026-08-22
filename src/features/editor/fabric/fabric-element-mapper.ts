@@ -1,6 +1,21 @@
-import type { DesignElement, DesignPage, TransformSnapshot } from '@/entities/design';
+import {
+  clampImageCropFocus,
+  clampImageCropZoom,
+  type DesignElement,
+  type DesignPage,
+  type ImageElement,
+  type TextTransformSnapshot,
+  type TransformSnapshot,
+} from '@/entities/design';
 import type { AssetGateway } from '@/features/editor/core/ports';
-import { Ellipse, FabricImage, Rect, Textbox, type FabricObject } from 'fabric';
+import {
+  controlsUtils,
+  Ellipse,
+  FabricImage,
+  Rect,
+  Textbox,
+  type FabricObject,
+} from 'fabric';
 
 import { setElementId } from './fabric-object-metadata';
 
@@ -12,6 +27,14 @@ export interface FabricTransformValues {
   scaleX?: number;
   scaleY?: number;
   angle?: number;
+}
+
+export interface FabricTextTransformValues extends FabricTransformValues {
+  fontSize?: number;
+}
+
+export interface ElementMappingOptions {
+  imageFailureMode?: 'placeholder' | 'throw';
 }
 
 const finiteOr = (value: number | undefined, fallback: number) =>
@@ -41,6 +64,19 @@ export function readTransform(values: FabricTransformValues): TransformSnapshot 
   };
 }
 
+export function readTextTransform(values: FabricTextTransformValues): TextTransformSnapshot {
+  const transform = readTransform(values);
+  const fontSize = positiveOr(values.fontSize, 1);
+  return {
+    ...transform,
+    fontSize: multipliedPositiveOr(
+      fontSize,
+      positiveOr(values.scaleY, 1),
+      fontSize,
+    ),
+  };
+}
+
 function commonOptions(element: DesignElement) {
   return {
     left: element.x,
@@ -49,12 +85,28 @@ function commonOptions(element: DesignElement) {
     opacity: element.opacity,
     originX: 'left' as const,
     originY: 'top' as const,
+    lockScalingFlip: true,
+    lockSkewingX: true,
+    lockSkewingY: true,
+  };
+}
+
+function createTextControls() {
+  const textControls = controlsUtils.createTextboxDefaultControls();
+  const scaleControls = controlsUtils.createObjectDefaultControls();
+  return {
+    ...textControls,
+    tl: scaleControls.tl,
+    tr: scaleControls.tr,
+    bl: scaleControls.bl,
+    br: scaleControls.br,
   };
 }
 
 function mapText(element: Extract<DesignElement, { type: 'text' }>): FabricObject {
   const textbox = new Textbox(element.text, {
     ...commonOptions(element),
+    controls: createTextControls(),
     width: element.width,
     fontFamily: APPROVED_FONT_FAMILIES.has(element.fontFamily)
       ? element.fontFamily
@@ -63,11 +115,12 @@ function mapText(element: Extract<DesignElement, { type: 'text' }>): FabricObjec
     fontWeight: element.fontWeight,
     fill: element.color,
     textAlign: element.textAlign,
+    splitByGrapheme: true,
+    scaleX: 1,
+    scaleY: 1,
   });
-  textbox.set({
-    scaleX: element.width / positiveOr(textbox.width, element.width),
-    scaleY: element.height / positiveOr(textbox.height, element.height),
-  });
+
+  textbox.setControlsVisibility({ mt: false, mb: false });
   return textbox;
 }
 
@@ -75,26 +128,62 @@ function mapShape(element: Extract<DesignElement, { type: 'shape' }>): FabricObj
   if (element.shape === 'rectangle') {
     return new Rect({ ...commonOptions(element), width: element.width, height: element.height, fill: element.fill });
   }
-  return new Ellipse({
+  const ellipse = new Ellipse({
     ...commonOptions(element), rx: element.width / 2, ry: element.height / 2, fill: element.fill,
+  });
+  if (element.shape === 'circle') {
+    ellipse.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
+  }
+  return ellipse;
+}
+
+export function applyImageCrop(image: FabricImage, element: ImageElement): void {
+  const original = image.getOriginalSize();
+  const sourceWidth = positiveOr(original.width, element.width);
+  const sourceHeight = positiveOr(original.height, element.height);
+  const frameAspect = element.width / element.height;
+  const sourceAspect = sourceWidth / sourceHeight;
+
+  let coverWidth = sourceWidth;
+  let coverHeight = sourceHeight;
+  if (sourceAspect > frameAspect) {
+    coverWidth = sourceHeight * frameAspect;
+  } else if (sourceAspect < frameAspect) {
+    coverHeight = sourceWidth / frameAspect;
+  }
+
+  const zoom = clampImageCropZoom(element.cropZoom ?? 1);
+  const cropWidth = coverWidth / zoom;
+  const cropHeight = coverHeight / zoom;
+  const focusX = (clampImageCropFocus(element.cropFocusX ?? 0) + 1) / 2;
+  const focusY = (clampImageCropFocus(element.cropFocusY ?? 0) + 1) / 2;
+  const cropX = (sourceWidth - cropWidth) * focusX;
+  const cropY = (sourceHeight - cropHeight) * focusY;
+
+  image.set({
+    cropX,
+    cropY,
+    width: cropWidth,
+    height: cropHeight,
+    scaleX: element.width / cropWidth,
+    scaleY: element.height / cropHeight,
   });
 }
 
 async function mapImage(
   element: Extract<DesignElement, { type: 'image' }>,
   assetGateway: Pick<AssetGateway, 'resolveUrl'>,
+  options: ElementMappingOptions,
 ): Promise<FabricObject> {
   try {
     const image = await FabricImage.fromURL(await assetGateway.resolveUrl(element.assetId));
-    const intrinsicWidth = positiveOr(image.width, element.width);
-    const intrinsicHeight = positiveOr(image.height, element.height);
-    image.set({
-      ...commonOptions(element),
-      scaleX: element.width / intrinsicWidth,
-      scaleY: element.height / intrinsicHeight,
-    });
+    image.set(commonOptions(element));
+    applyImageCrop(image, element);
     return image;
-  } catch {
+  } catch (error) {
+    if (options.imageFailureMode === 'throw') {
+      throw new Error(`이미지를 렌더링할 수 없습니다: ${element.assetId}`, { cause: error });
+    }
     return new Rect({
       ...commonOptions(element),
       width: element.width,
@@ -111,18 +200,20 @@ async function mapImage(
 export async function elementToFabricObject(
   element: DesignElement,
   assetGateway: Pick<AssetGateway, 'resolveUrl'>,
+  options: ElementMappingOptions = {},
 ): Promise<FabricObject> {
   const object = element.type === 'text'
     ? mapText(element)
     : element.type === 'shape'
       ? mapShape(element)
-      : await mapImage(element, assetGateway);
+      : await mapImage(element, assetGateway, options);
   return setElementId(object, element.id);
 }
 
 export async function pageToFabricObjects(
   page: DesignPage,
   assetGateway: Pick<AssetGateway, 'resolveUrl'>,
+  options: ElementMappingOptions = {},
 ): Promise<FabricObject[]> {
-  return Promise.all(page.elements.map((element) => elementToFabricObject(element, assetGateway)));
+  return Promise.all(page.elements.map((element) => elementToFabricObject(element, assetGateway, options)));
 }

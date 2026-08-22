@@ -9,6 +9,10 @@ interface PendingSave {
   revision: number;
 }
 
+export interface SaveCoordinatorCallbacks {
+  onLatestSaveSuccess?(): void;
+}
+
 function cloneDesign(design: Design): Design {
   return structuredClone(design);
 }
@@ -25,6 +29,7 @@ export class SaveCoordinator {
     private readonly cardId: string,
     private readonly repository: DesignRepository,
     private readonly uiStore: EditorUiStore,
+    private readonly callbacks: SaveCoordinatorCallbacks = {},
   ) {}
 
   schedule(design: Design): void {
@@ -93,6 +98,7 @@ export class SaveCoordinator {
         if (!this.disposed && pending.revision === this.revision && !this.pending) {
           this.uiStore.getState().setSaveStatus('saved');
           this.uiStore.getState().setSaveError(null);
+          try { this.callbacks.onLatestSaveSuccess?.(); } catch { /* recovery cleanup is best effort */ }
         }
         return;
       }

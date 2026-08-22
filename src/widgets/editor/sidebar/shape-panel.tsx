@@ -6,7 +6,7 @@ import { useEditor, useEditorUiStore } from '@/features/editor/hooks/use-editor'
 export function ShapePanel() {
   const editor = useEditor();
   const setError = useEditorUiStore((state) => state.setError);
-  const addShape = async (shape: 'rectangle' | 'circle') => {
+  const addShape = async (shape: 'rectangle' | 'circle' | 'ellipse') => {
     try {
       await editor.addShape(shape);
       setError(null);
@@ -23,6 +23,7 @@ export function ShapePanel() {
       <div className="grid grid-cols-2 gap-2">
         <Button onClick={() => void addShape('rectangle')}>사각형</Button>
         <Button onClick={() => void addShape('circle')}>원</Button>
+        <Button onClick={() => void addShape('ellipse')}>타원</Button>
       </div>
     </section>
   );

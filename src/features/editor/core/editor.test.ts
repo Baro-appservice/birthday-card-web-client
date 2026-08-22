@@ -39,13 +39,19 @@ function createEditorTestKit() {
     exportPng: vi.fn().mockResolvedValue(new Blob(['png'], { type: 'image/png' })),
   };
   const onDocumentChange = vi.fn();
+  let generatedElementNumber = 0;
   const editor = new Editor({
     designStore,
     runtimeStore,
     renderer: rendererKit.renderer,
     assetGateway,
     exporter,
-    idGenerator: vi.fn(() => 'created-element'),
+    idGenerator: vi.fn(() => {
+      generatedElementNumber += 1;
+      return generatedElementNumber === 1
+        ? 'created-element'
+        : `created-element-${generatedElementNumber}`;
+    }),
     onDocumentChange,
   });
   return { editor, designStore, runtimeStore, ...rendererKit, assetGateway, exporter, onDocumentChange };

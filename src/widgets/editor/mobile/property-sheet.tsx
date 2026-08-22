@@ -57,7 +57,7 @@ export function PropertySheet({
         aria-labelledby={titleId}
         onKeyDown={onKeyDown}
         onMouseDown={(event) => event.stopPropagation()}
-        className="w-full rounded-t-[1.5rem] bg-[var(--surface)] px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 shadow-[var(--shadow-float)]"
+        className="max-h-[85dvh] w-full overflow-y-auto overscroll-contain rounded-t-[1.5rem] bg-[var(--surface)] px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 shadow-[var(--shadow-float)]"
       >
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border-strong)]" aria-hidden="true" />
         <div className="mb-4 flex items-center justify-between gap-3">

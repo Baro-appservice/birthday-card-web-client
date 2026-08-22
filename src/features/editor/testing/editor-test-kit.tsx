@@ -50,6 +50,7 @@ export function createEditorTestKit(options: {
     upload: vi.fn(),
     resolveUrl: vi.fn().mockResolvedValue('/assets/birthday-placeholder.svg'),
     remove: vi.fn().mockResolvedValue(undefined),
+    garbageCollect: vi.fn().mockResolvedValue(undefined),
   };
   const exporter: DesignExporter = {
     exportPng: vi.fn().mockResolvedValue(new Blob([], { type: 'image/png' })),

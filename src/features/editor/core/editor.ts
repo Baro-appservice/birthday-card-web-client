@@ -1,12 +1,20 @@
-import type {
-  Design,
-  DesignElement,
-  ShapeElement,
-  TextElement,
+import {
+  assertHexColor,
+  assertImageCropFocus,
+  assertImageCropZoom,
+  assertTextFontSize,
+  collectDesignAssetIds,
+  type BaseElement,
+  type Design,
+  type DesignElement,
+  type ImageElement,
+  type ShapeElement,
+  type TextElement,
 } from '@/entities/design';
 import type {
   AssetGateway,
   DesignExporter,
+  EditorElementBounds,
   EditorEvent,
   EditorRenderer,
 } from '@/features/editor/core/ports';
@@ -21,6 +29,9 @@ import { TransformElementCommand } from '../commands/transform-element-command';
 import { UpdateElementCommand } from '../commands/update-element-command';
 import { EditorHistory } from './editor-history';
 
+const ASSET_GC_IDLE_MS = 2_000;
+const DUPLICATE_OFFSET = 32;
+
 export interface EditorDependencies {
   designStore: DesignStore;
   runtimeStore: EditorRuntimeStore;
@@ -31,30 +42,60 @@ export interface EditorDependencies {
   onDocumentChange: (design: Design) => void;
 }
 
+type CommonSelectionChanges = Partial<Pick<BaseElement, 'x' | 'y' | 'rotation' | 'opacity'>>;
+type ImageSelectionChanges = Partial<Pick<ImageElement, 'cropZoom' | 'cropFocusX' | 'cropFocusY'>>;
+
 export type SelectionPatch =
+  | { type: 'common'; changes: CommonSelectionChanges }
   | {
       type: 'text';
       changes: Partial<Pick<TextElement,
         'text' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'color' | 'textAlign'>>;
     }
+  | { type: 'image'; changes: ImageSelectionChanges }
   | { type: 'shape'; changes: Partial<Pick<ShapeElement, 'fill'>> };
+
+export type CanvasAlignment =
+  | 'left'
+  | 'horizontal-center'
+  | 'right'
+  | 'top'
+  | 'vertical-center'
+  | 'bottom';
+
+export interface UpdateSelectionOptions {
+  historyGroup?: string;
+}
 
 export interface EditorApi {
   mount(canvas: HTMLCanvasElement): Promise<void>;
   addText(): Promise<void>;
-  addShape(shape: 'rectangle' | 'circle'): Promise<void>;
+  addShape(shape: ShapeElement['shape']): Promise<void>;
   addImage(file: File): Promise<void>;
   replaceSelectedImage(file: File): Promise<void>;
-  updateSelection(patch: SelectionPatch): Promise<void>;
+  updateSelection(patch: SelectionPatch, options?: UpdateSelectionOptions): Promise<void>;
+  updateTextElement(
+    pageId: string,
+    elementId: string,
+    text: string,
+    options?: UpdateSelectionOptions,
+  ): Promise<void>;
+  duplicateSelection(): Promise<void>;
   deleteSelection(): Promise<void>;
   bringForward(): Promise<void>;
   sendBackward(): Promise<void>;
+  bringToFront(): Promise<void>;
+  sendToBack(): Promise<void>;
+  alignSelection(alignment: CanvasAlignment): Promise<void>;
   undo(): Promise<void>;
   redo(): Promise<void>;
   setZoom(zoom: number): void;
   selectElement(elementId: string): Promise<void>;
-  setBackground(color: string): Promise<void>;
+  clearSelection(): Promise<void>;
+  setBackground(color: string, options?: UpdateSelectionOptions): Promise<void>;
   exportPng(): Promise<Blob>;
+  flushMaintenance(): Promise<void>;
+  close(): Promise<void>;
 }
 
 const DEFAULT_TEXT: Omit<TextElement, 'id'> = {
@@ -74,13 +115,14 @@ const DEFAULT_TEXT: Omit<TextElement, 'id'> = {
 };
 
 function createShapeElement(id: string, shape: ShapeElement['shape']): ShapeElement {
+  const isCircle = shape === 'circle';
   return {
     id,
     type: 'shape',
     x: 390,
     y: 560,
     width: 300,
-    height: 220,
+    height: isCircle ? 300 : 220,
     rotation: 0,
     opacity: 1,
     shape,
@@ -88,10 +130,91 @@ function createShapeElement(id: string, shape: ShapeElement['shape']): ShapeElem
   };
 }
 
+function fitInside(width: number, height: number, maxWidth: number, maxHeight: number) {
+  const scale = Math.min(1, maxWidth / width, maxHeight / height);
+  return { width: width * scale, height: height * scale };
+}
+
+function hasActualChanges(element: DesignElement, changes: Partial<DesignElement>): boolean {
+  const current = element as unknown as Record<string, unknown>;
+  return Object.entries(changes).some(([key, value]) => current[key] !== value);
+}
+
+function assertFiniteProperty(name: string, value: number | undefined): void {
+  if (value !== undefined && !Number.isFinite(value)) {
+    throw new Error(`${name} 값은 유한한 숫자여야 합니다.`);
+  }
+}
+
+function assertCommonSelectionChanges(changes: CommonSelectionChanges): void {
+  assertFiniteProperty('가로 위치', changes.x);
+  assertFiniteProperty('세로 위치', changes.y);
+  assertFiniteProperty('회전', changes.rotation);
+  if (changes.opacity !== undefined
+    && (!Number.isFinite(changes.opacity) || changes.opacity < 0 || changes.opacity > 1)) {
+    throw new Error('투명도는 0에서 1 사이여야 합니다.');
+  }
+}
+
+function assertImageSelectionChanges(changes: ImageSelectionChanges): void {
+  if (changes.cropZoom !== undefined) assertImageCropZoom(changes.cropZoom);
+  if (changes.cropFocusX !== undefined) assertImageCropFocus(changes.cropFocusX);
+  if (changes.cropFocusY !== undefined) assertImageCropFocus(changes.cropFocusY);
+}
+
+function duplicateCoordinate(position: number, size: number, limit: number): number {
+  const max = Math.max(0, limit - Math.min(Math.abs(size), limit));
+  const current = Math.min(max, Math.max(0, position));
+  const forward = Math.min(max, current + DUPLICATE_OFFSET);
+  if (Math.abs(forward - current) >= 1) return forward;
+  return Math.max(0, current - DUPLICATE_OFFSET);
+}
+
+function fallbackBounds(element: DesignElement): EditorElementBounds {
+  return {
+    left: element.x,
+    top: element.y,
+    width: element.width,
+    height: element.height,
+  };
+}
+
+function usableBounds(bounds: EditorElementBounds | undefined): bounds is EditorElementBounds {
+  return Boolean(bounds
+    && Number.isFinite(bounds.left)
+    && Number.isFinite(bounds.top)
+    && Number.isFinite(bounds.width)
+    && Number.isFinite(bounds.height)
+    && bounds.width >= 0
+    && bounds.height >= 0);
+}
+
+function alignmentChange(
+  element: DesignElement,
+  bounds: EditorElementBounds,
+  design: Design,
+  alignment: CanvasAlignment,
+): CommonSelectionChanges {
+  if (alignment === 'left') return { x: element.x - bounds.left };
+  if (alignment === 'horizontal-center') {
+    return { x: element.x + design.width / 2 - (bounds.left + bounds.width / 2) };
+  }
+  if (alignment === 'right') {
+    return { x: element.x + design.width - (bounds.left + bounds.width) };
+  }
+  if (alignment === 'top') return { y: element.y - bounds.top };
+  if (alignment === 'vertical-center') {
+    return { y: element.y + design.height / 2 - (bounds.top + bounds.height / 2) };
+  }
+  return { y: element.y + design.height - (bounds.top + bounds.height) };
+}
+
 export class Editor implements EditorApi {
   private readonly history = new EditorHistory();
   private readonly unsubscribe: () => void;
   private operationChain: Promise<void> = Promise.resolve();
+  private assetGcTimer: ReturnType<typeof setTimeout> | null = null;
+  private closePromise: Promise<void> | null = null;
   private mountAttempted = false;
   private disposed = false;
   private generation = 0;
@@ -120,6 +243,7 @@ export class Editor implements EditorApi {
         this.dependencies.renderer.select(this.selectedElementIds);
         this.assertGeneration(generation);
         this.dependencies.runtimeStore.getState().setCanvasStatus('ready');
+        this.scheduleAssetGarbageCollection();
       } catch (error) {
         if (this.isActiveGeneration(generation)) {
           this.dependencies.runtimeStore.getState().setCanvasStatus('error');
@@ -160,6 +284,7 @@ export class Editor implements EditorApi {
       try {
         this.assertActive();
         const id = this.dependencies.idGenerator();
+        const fitted = fitInside(asset.width, asset.height, 640, 480);
         await this.applyDocumentMutation(() => this.history.execute(new AddElementCommand(
           this.dependencies.designStore,
           this.pageId,
@@ -168,11 +293,14 @@ export class Editor implements EditorApi {
             type: 'image',
             x: 220,
             y: 380,
-            width: Math.min(asset.width, 640),
-            height: Math.min(asset.height, 480),
+            width: fitted.width,
+            height: fitted.height,
             rotation: 0,
             opacity: 1,
             assetId: asset.id,
+            cropZoom: 1,
+            cropFocusX: 0,
+            cropFocusY: 0,
           },
         )), [id]);
       } catch (error) {
@@ -193,7 +321,7 @@ export class Editor implements EditorApi {
           this.dependencies.designStore,
           this.pageId,
           selected.id,
-          { assetId: asset.id },
+          { assetId: asset.id, cropZoom: 1, cropFocusX: 0, cropFocusY: 0 },
         )));
       } catch (error) {
         await this.rethrowAfterUploadedAssetCompensation(asset.id, error);
@@ -201,23 +329,83 @@ export class Editor implements EditorApi {
     });
   }
 
-  async updateSelection(patch: SelectionPatch): Promise<void> {
+  async updateSelection(
+    patch: SelectionPatch,
+    options?: UpdateSelectionOptions,
+  ): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
-      if (patch.type === 'text' && patch.changes.fontSize !== undefined) {
-        const { fontSize } = patch.changes;
-        if (!Number.isFinite(fontSize) || fontSize < 12 || fontSize > 160) {
-          throw new Error('글자 크기는 12에서 160 사이의 유한한 숫자여야 합니다.');
-        }
-      }
       const selected = this.singleSelectedElement();
-      if (!selected || selected.type !== patch.type) return;
+      if (!selected) return;
+
+      if (patch.type === 'common') {
+        assertCommonSelectionChanges(patch.changes);
+      } else if (patch.type === 'text') {
+        if (selected.type !== 'text') return;
+        if (patch.changes.fontSize !== undefined) assertTextFontSize(patch.changes.fontSize);
+        if (patch.changes.color !== undefined) assertHexColor(patch.changes.color);
+      } else if (patch.type === 'image') {
+        if (selected.type !== 'image') return;
+        assertImageSelectionChanges(patch.changes);
+      } else {
+        if (selected.type !== 'shape') return;
+        if (patch.changes.fill !== undefined) assertHexColor(patch.changes.fill);
+      }
+
+      if (!hasActualChanges(selected, patch.changes as Partial<DesignElement>)) return;
       await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
         this.dependencies.designStore,
         this.pageId,
         selected.id,
         patch.changes as Partial<DesignElement>,
+        options?.historyGroup,
       )));
+    });
+  }
+
+  async updateTextElement(
+    pageId: string,
+    elementId: string,
+    text: string,
+    options?: UpdateSelectionOptions,
+  ): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      const page = this.design.pages.find((candidate) => candidate.id === pageId);
+      const element = page?.elements.find((candidate) => candidate.id === elementId);
+      if (!element || element.type !== 'text' || element.text === text) return;
+      await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
+        this.dependencies.designStore,
+        pageId,
+        elementId,
+        { text },
+        options?.historyGroup,
+      )));
+    });
+  }
+
+  async duplicateSelection(): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      const selected = this.singleSelectedElement();
+      const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
+      if (!selected || !page) return;
+      const index = page.elements.findIndex((element) => element.id === selected.id);
+      if (index < 0) return;
+
+      const id = this.dependencies.idGenerator();
+      const duplicate = {
+        ...selected,
+        id,
+        x: duplicateCoordinate(selected.x, selected.width, this.design.width),
+        y: duplicateCoordinate(selected.y, selected.height, this.design.height),
+      } as DesignElement;
+      await this.applyDocumentMutation(() => this.history.execute(new AddElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        duplicate,
+        index + 1,
+      )), [id]);
     });
   }
 
@@ -242,11 +430,44 @@ export class Editor implements EditorApi {
     await this.reorderSelection(-1);
   }
 
+  async bringToFront(): Promise<void> {
+    await this.reorderSelectionToEdge('front');
+  }
+
+  async sendToBack(): Promise<void> {
+    await this.reorderSelectionToEdge('back');
+  }
+
+  async alignSelection(alignment: CanvasAlignment): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      const selected = this.singleSelectedElement();
+      if (!selected) return;
+      const measured = this.dependencies.renderer.measureElement?.(selected.id);
+      const bounds = usableBounds(measured) ? measured : fallbackBounds(selected);
+      const changes = alignmentChange(selected, bounds, this.design, alignment);
+      if (!hasActualChanges(selected, changes as Partial<DesignElement>)) return;
+      await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        selected.id,
+        changes as Partial<DesignElement>,
+      )));
+    });
+  }
+
   async undo(): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
       if (!this.history.canUndo()) return;
-      await this.applyDocumentMutation(() => { this.history.undo(); }, []);
+      const previousSelection = [...this.selectedElementIds];
+      await this.applyDocumentMutation(() => {
+        this.history.undo();
+        const survivingSelection = previousSelection
+          .filter((id) => this.findElement(id))
+          .slice(0, 1);
+        this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection);
+      });
     });
   }
 
@@ -254,7 +475,14 @@ export class Editor implements EditorApi {
     return this.enqueue(async () => {
       this.assertActive();
       if (!this.history.canRedo()) return;
-      await this.applyDocumentMutation(() => { this.history.redo(); }, []);
+      const previousSelection = [...this.selectedElementIds];
+      await this.applyDocumentMutation(() => {
+        this.history.redo();
+        const survivingSelection = previousSelection
+          .filter((id) => this.findElement(id))
+          .slice(0, 1);
+        this.dependencies.runtimeStore.getState().setSelectedElementIds(survivingSelection);
+      });
     });
   }
 
@@ -267,35 +495,28 @@ export class Editor implements EditorApi {
     return this.enqueue(async () => {
       const generation = this.activeGeneration();
       if (!this.findElement(elementId)) return;
-      const previousSelection = [...this.selectedElementIds];
-      try {
-        this.dependencies.runtimeStore.getState().setSelectedElementIds([elementId]);
-        this.dependencies.renderer.select([elementId]);
-        this.assertGeneration(generation);
-      } catch (error) {
-        this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
-        if (this.isActiveGeneration(generation)) {
-          try {
-            this.dependencies.renderer.select(previousSelection);
-            this.assertGeneration(generation);
-          } catch {
-            if (this.isActiveGeneration(generation)) {
-              this.dependencies.runtimeStore.getState().setCanvasStatus('error');
-            }
-          }
-        }
-        throw error;
-      }
+      await this.applySelection([elementId], generation);
     });
   }
 
-  async setBackground(color: string): Promise<void> {
+  async clearSelection(): Promise<void> {
+    return this.enqueue(async () => {
+      const generation = this.activeGeneration();
+      await this.applySelection([], generation);
+    });
+  }
+
+  async setBackground(color: string, options?: UpdateSelectionOptions): Promise<void> {
     return this.enqueue(async () => {
       this.assertActive();
+      assertHexColor(color);
+      const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
+      if (!page || page.background === color) return;
       await this.applyDocumentMutation(() => this.history.execute(new ChangeBackgroundCommand(
         this.dependencies.designStore,
         this.pageId,
         color,
+        options?.historyGroup,
       )));
     });
   }
@@ -312,12 +533,33 @@ export class Editor implements EditorApi {
     });
   }
 
+  flushMaintenance(): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      this.clearAssetGcTimer();
+      await this.dependencies.assetGateway.garbageCollect?.(this.protectedAssetIds());
+    });
+  }
+
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    if (!this.disposed) {
+      this.disposed = true;
+      this.generation += 1;
+      this.clearAssetGcTimer();
+      this.unsubscribe();
+    }
+
+    try {
+      this.closePromise = Promise.resolve(this.dependencies.renderer.dispose()).then(() => undefined);
+    } catch (error) {
+      this.closePromise = Promise.reject(error);
+    }
+    return this.closePromise;
+  }
+
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.generation += 1;
-    this.unsubscribe();
-    this.dependencies.renderer.dispose();
+    void this.close().catch(() => undefined);
   }
 
   private get design(): Design {
@@ -363,6 +605,25 @@ export class Editor implements EditorApi {
     });
   }
 
+  private async reorderSelectionToEdge(edge: 'front' | 'back'): Promise<void> {
+    return this.enqueue(async () => {
+      this.assertActive();
+      const selected = this.singleSelectedElement();
+      const page = this.design.pages.find((candidate) => candidate.id === this.pageId);
+      if (!selected || !page) return;
+      const currentIndex = page.elements.findIndex((element) => element.id === selected.id);
+      const targetIndex = edge === 'front' ? page.elements.length - 1 : 0;
+      if (currentIndex < 0 || currentIndex === targetIndex) return;
+
+      await this.applyDocumentMutation(() => this.history.execute(new ReorderElementCommand(
+        this.dependencies.designStore,
+        this.pageId,
+        selected.id,
+        targetIndex,
+      )));
+    });
+  }
+
   private async applyDocumentMutation(
     mutation: () => void,
     selection?: string[],
@@ -376,6 +637,38 @@ export class Editor implements EditorApi {
       mutation();
       if (selection) this.dependencies.runtimeStore.getState().setSelectedElementIds(selection);
       await this.synchronizeDocument(this.design, this.selectedElementIds, generation);
+    } catch (error) {
+      this.dependencies.designStore.getState().replaceDesign(previousDesign);
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
+      this.history.restore(previousHistory);
+      if (this.isActiveGeneration(generation)) {
+        try {
+          await this.dependencies.renderer.render(previousDesign);
+          this.assertGeneration(generation);
+          this.dependencies.renderer.select(previousSelection);
+        } catch {
+          if (this.isActiveGeneration(generation)) {
+            this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+          }
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async applyLiveTextMutation(
+    mutation: () => void,
+    generation: number,
+  ): Promise<void> {
+    const previousDesign = structuredClone(this.design);
+    const previousSelection = [...this.selectedElementIds];
+    const previousHistory = this.history.snapshot();
+
+    try {
+      mutation();
+      this.assertGeneration(generation);
+      this.dependencies.onDocumentChange(this.design);
+      this.scheduleAssetGarbageCollection();
     } catch (error) {
       this.dependencies.designStore.getState().replaceDesign(previousDesign);
       this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
@@ -414,6 +707,7 @@ export class Editor implements EditorApi {
     this.dependencies.renderer.select(selection);
     this.assertGeneration(generation);
     this.dependencies.onDocumentChange(design);
+    this.scheduleAssetGarbageCollection();
   }
 
   private async handleRendererEvent(event: EditorEvent, eventGeneration: number): Promise<void> {
@@ -439,14 +733,62 @@ export class Editor implements EditorApi {
     await this.enqueue(async () => {
       this.assertGeneration(eventGeneration);
       const selected = this.findElement(event.elementId);
-      if (!selected || selected.type !== 'text') return;
-      await this.applyDocumentMutation(() => this.history.execute(new UpdateElementCommand(
+      if (!selected || selected.type !== 'text' || selected.text === event.after) return;
+      await this.applyLiveTextMutation(() => this.history.execute(new UpdateElementCommand(
         this.dependencies.designStore,
         this.pageId,
         event.elementId,
         { text: event.after },
-      )));
+        event.historyGroup,
+      )), eventGeneration);
     });
+  }
+
+  private async applySelection(selection: string[], generation: number): Promise<void> {
+    const previousSelection = [...this.selectedElementIds];
+    try {
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(selection);
+      this.dependencies.renderer.select(selection);
+      this.assertGeneration(generation);
+    } catch (error) {
+      this.dependencies.runtimeStore.getState().setSelectedElementIds(previousSelection);
+      if (this.isActiveGeneration(generation)) {
+        try {
+          this.dependencies.renderer.select(previousSelection);
+          this.assertGeneration(generation);
+        } catch {
+          if (this.isActiveGeneration(generation)) {
+            this.dependencies.runtimeStore.getState().setCanvasStatus('error');
+          }
+        }
+      }
+      throw error;
+    }
+  }
+
+  private protectedAssetIds(): ReadonlySet<string> {
+    return new Set([
+      ...collectDesignAssetIds(this.design),
+      ...this.history.referencedAssetIds(),
+    ]);
+  }
+
+  private scheduleAssetGarbageCollection(): void {
+    if (this.disposed || !this.dependencies.assetGateway.garbageCollect) return;
+    this.clearAssetGcTimer();
+    this.assetGcTimer = setTimeout(() => {
+      this.assetGcTimer = null;
+      void this.enqueue(async () => {
+        if (this.disposed) return;
+        await this.dependencies.assetGateway.garbageCollect?.(this.protectedAssetIds());
+      }).catch(() => undefined);
+    }, ASSET_GC_IDLE_MS);
+  }
+
+  private clearAssetGcTimer(): void {
+    if (!this.assetGcTimer) return;
+    clearTimeout(this.assetGcTimer);
+    this.assetGcTimer = null;
   }
 
   private async rethrowAfterUploadedAssetCompensation(

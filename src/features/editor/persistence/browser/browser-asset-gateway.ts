@@ -1,10 +1,13 @@
+import { collectUnknownAssetIds } from '@/entities/design';
 import type { AssetGateway, AssetReference } from '@/features/editor/core/ports';
 
 import {
   ASSET_RECORDS_STORE,
+  DESIGN_RECORDS_STORE,
   requestToPromise,
   transactionDone,
 } from './editor-db';
+import { EMERGENCY_DESIGN_PREFIX } from './emergency-design-store';
 
 const BUILTIN_ASSETS = {
   'builtin:birthday-photo': '/assets/birthday-placeholder.svg',
@@ -12,7 +15,12 @@ const BUILTIN_ASSETS = {
 
 const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION = 8192;
+const MAX_IMAGE_PIXELS = 32_000_000;
 const MAX_ID_GENERATION_ATTEMPTS = 3;
+const ASSET_GC_GRACE_MS = 5 * 60 * 1_000;
+
+type ProcessingError = { value: unknown } | null;
 
 export interface AssetDimensions {
   width: number;
@@ -24,6 +32,7 @@ export type AssetDimensionDecoder = (file: Blob) => Promise<AssetDimensions>;
 export interface BrowserAssetGatewayOptions {
   decoder?: AssetDimensionDecoder;
   idGenerator?: () => string;
+  now?: () => number;
 }
 
 function readFileBytes(file: File): Promise<ArrayBuffer> {
@@ -49,11 +58,29 @@ interface AssetRecord {
   createdAt: number;
 }
 
+interface RawDesignRecord {
+  current?: unknown;
+  backup?: unknown;
+}
+
 function isValidDimensions(dimensions: AssetDimensions): boolean {
   return Number.isFinite(dimensions.width)
     && Number.isFinite(dimensions.height)
     && dimensions.width > 0
     && dimensions.height > 0;
+}
+
+function assertSafeDimensions(dimensions: AssetDimensions): void {
+  if (!isValidDimensions(dimensions)) {
+    throw new Error('유효한 이미지 크기를 읽을 수 없습니다.');
+  }
+  if (
+    dimensions.width > MAX_IMAGE_DIMENSION
+    || dimensions.height > MAX_IMAGE_DIMENSION
+    || dimensions.width * dimensions.height > MAX_IMAGE_PIXELS
+  ) {
+    throw new Error('이미지 해상도가 너무 큽니다. 최대 변 길이 8192px, 총 3200만 픽셀까지 지원합니다.');
+  }
 }
 
 async function decodeImageDimensions(file: Blob): Promise<AssetDimensions> {
@@ -91,6 +118,31 @@ function isConstraintError(error: unknown): boolean {
     && error.name === 'ConstraintError';
 }
 
+function throwProcessingError(processingError: ProcessingError): void {
+  if (processingError) throw processingError.value;
+}
+
+function collectEmergencyAssetIds(target: Set<string>): void {
+  if (typeof window === 'undefined') return;
+  let storage: Storage;
+  try {
+    storage = window.localStorage;
+  } catch {
+    return;
+  }
+
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (!key?.startsWith(EMERGENCY_DESIGN_PREFIX)) continue;
+    try {
+      const raw = storage.getItem(key);
+      if (raw) collectUnknownAssetIds(JSON.parse(raw), target);
+    } catch {
+      // Invalid recovery records are ignored by GC rather than making cleanup destructive.
+    }
+  }
+}
+
 export class BrowserAssetGateway implements AssetGateway {
   private readonly objectUrls = new Map<string, string>();
   private readonly resolutionPromises = new Map<string, Promise<string>>();
@@ -100,6 +152,7 @@ export class BrowserAssetGateway implements AssetGateway {
 
   private readonly decoder: AssetDimensionDecoder;
   private readonly idGenerator: () => string;
+  private readonly now: () => number;
 
   constructor(
     private readonly database: IDBDatabase,
@@ -107,6 +160,7 @@ export class BrowserAssetGateway implements AssetGateway {
   ) {
     this.decoder = options.decoder ?? decodeImageDimensions;
     this.idGenerator = options.idGenerator ?? (() => crypto.randomUUID());
+    this.now = options.now ?? Date.now;
   }
 
   async upload(file: File): Promise<AssetReference> {
@@ -120,9 +174,7 @@ export class BrowserAssetGateway implements AssetGateway {
 
     const dimensions = await this.decoder(file);
     this.assertActive();
-    if (!isValidDimensions(dimensions)) {
-      throw new Error('유효한 이미지 크기를 읽을 수 없습니다.');
-    }
+    assertSafeDimensions(dimensions);
     const bytes = await readFileBytes(file);
     this.assertActive();
     return this.persistAsset({
@@ -175,19 +227,90 @@ export class BrowserAssetGateway implements AssetGateway {
     }
   }
 
-  private async removeUploadedAsset(assetId: string): Promise<void> {
-    const transaction = this.writeTransaction();
-    const store = transaction.objectStore(ASSET_RECORDS_STORE);
-    const record = await requestToPromise<AssetRecord | undefined>(store.get(assetId));
-    if (!record) {
-      transaction.abort();
-      await transactionDone(transaction).catch(() => undefined);
-      throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
+  async garbageCollect(protectedAssetIds: ReadonlySet<string>): Promise<void> {
+    this.assertActive();
+    const referenced = new Set(protectedAssetIds);
+    collectEmergencyAssetIds(referenced);
+    const cutoff = this.now() - ASSET_GC_GRACE_MS;
+
+    let transaction: IDBTransaction;
+    try {
+      transaction = this.database.transaction(
+        [DESIGN_RECORDS_STORE, ASSET_RECORDS_STORE],
+        'readwrite',
+      );
+    } catch (error) {
+      throw new Error('Asset 정리용 저장소를 열 수 없습니다.', { cause: error });
     }
-    store.delete(assetId);
-    await transactionDone(transaction);
-    this.removedAssetIds.add(assetId);
-    this.revoke(assetId);
+
+    const designStore = transaction.objectStore(DESIGN_RECORDS_STORE);
+    const assetStore = transaction.objectStore(ASSET_RECORDS_STORE);
+    const designRequest = designStore.getAll();
+    const assetsRequest = assetStore.getAll();
+    const deleted: string[] = [];
+    let records: RawDesignRecord[] | null = null;
+    let assets: AssetRecord[] | null = null;
+    let processingError: ProcessingError = null;
+    let deletesQueued = false;
+
+    const abortWith = (error: unknown) => {
+      if (!processingError) processingError = { value: error };
+      try { transaction.abort(); } catch { /* transaction may already be aborting */ }
+    };
+
+    const queueDeletesWhenReady = () => {
+      if (deletesQueued || processingError || records === null || assets === null) return;
+      deletesQueued = true;
+      try {
+        for (const record of records) {
+          collectUnknownAssetIds(record.current, referenced);
+          collectUnknownAssetIds(record.backup, referenced);
+        }
+
+        for (const asset of assets) {
+          const assetId = asset.id;
+          if (typeof assetId !== 'string') continue;
+          // Another tab can persist an asset slightly before it connects that id
+          // to Design/emergency state. Never collect a freshly-created record in
+          // that vulnerable window. Missing/invalid timestamps are kept as the
+          // conservative choice rather than risking destructive cleanup.
+          if (!Number.isFinite(asset.createdAt) || asset.createdAt > cutoff) continue;
+          if (
+            referenced.has(assetId)
+            || this.resolutionPromises.has(assetId)
+            || this.removalPromises.has(assetId)
+          ) continue;
+          assetStore.delete(assetId);
+          deleted.push(assetId);
+        }
+      } catch (error) {
+        abortWith(error);
+      }
+    };
+
+    // Queue dependent deletes from inside request success callbacks. Awaiting the
+    // reads before issuing writes can make Safari/WebKit auto-commit the tx.
+    designRequest.onsuccess = () => {
+      records = designRequest.result as RawDesignRecord[];
+      queueDeletesWhenReady();
+    };
+    assetsRequest.onsuccess = () => {
+      assets = assetsRequest.result as AssetRecord[];
+      queueDeletesWhenReady();
+    };
+
+    try {
+      await transactionDone(transaction);
+    } catch (error) {
+      throwProcessingError(processingError);
+      throw error;
+    }
+    throwProcessingError(processingError);
+
+    for (const assetId of deleted) {
+      this.removedAssetIds.add(assetId);
+      this.revoke(assetId);
+    }
   }
 
   dispose(): void {
@@ -224,10 +347,11 @@ export class BrowserAssetGateway implements AssetGateway {
       const request = transaction.objectStore(ASSET_RECORDS_STORE).add({
         ...asset,
         bytes: input.bytes.slice(0),
-        createdAt: Date.now(),
+        createdAt: this.now(),
       } satisfies AssetRecord);
       try {
         await Promise.all([requestToPromise(request), transactionDone(transaction)]);
+        this.removedAssetIds.delete(asset.id);
         return asset;
       } catch (error) {
         if (isConstraintError(error) && attempt + 1 < MAX_ID_GENERATION_ATTEMPTS) continue;
@@ -235,6 +359,41 @@ export class BrowserAssetGateway implements AssetGateway {
       }
     }
     throw new Error('고유한 Asset ID를 만들 수 없습니다.');
+  }
+
+  private async removeUploadedAsset(assetId: string): Promise<void> {
+    const transaction = this.writeTransaction();
+    const store = transaction.objectStore(ASSET_RECORDS_STORE);
+    const request = store.get(assetId);
+    let missing = false;
+    let processingError: ProcessingError = null;
+
+    request.onsuccess = () => {
+      if (!request.result) {
+        missing = true;
+        try { transaction.abort(); } catch { /* transaction may already be aborting */ }
+        return;
+      }
+      try {
+        store.delete(assetId);
+      } catch (error) {
+        processingError = { value: error };
+        try { transaction.abort(); } catch { /* transaction may already be aborting */ }
+      }
+    };
+
+    try {
+      await transactionDone(transaction);
+    } catch (error) {
+      if (missing) throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
+      throwProcessingError(processingError);
+      throw error;
+    }
+    if (missing) throw new Error(`존재하지 않는 Asset입니다: ${assetId}`);
+    throwProcessingError(processingError);
+
+    this.removedAssetIds.add(assetId);
+    this.revoke(assetId);
   }
 
   private async resolveUploadedUrl(assetId: string): Promise<string> {

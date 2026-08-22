@@ -18,6 +18,21 @@ vi.mock('fabric', async (importOriginal) => {
     handlers = new Map<string, (event: Record<string, unknown>) => void>();
     backgroundColor: string | undefined;
     add = vi.fn((...objects: any[]) => { this.objects.push(...objects); return this; });
+    remove = vi.fn((...objects: any[]) => {
+      const removed = new Set(objects);
+      this.objects = this.objects.filter((object) => !removed.has(object));
+      this.activeObjects = this.activeObjects.filter((object) => !removed.has(object));
+      return objects;
+    });
+    moveObjectTo = vi.fn((object: any, index: number) => {
+      const currentIndex = this.objects.indexOf(object);
+      if (currentIndex < 0) return false;
+      const boundedIndex = Math.max(0, Math.min(index, this.objects.length - 1));
+      if (currentIndex === boundedIndex) return false;
+      this.objects.splice(currentIndex, 1);
+      this.objects.splice(boundedIndex, 0, object);
+      return true;
+    });
     clear = vi.fn(() => { this.objects = []; this.activeObjects = []; return this; });
     setDimensions = vi.fn();
     requestRenderAll = vi.fn();
@@ -74,6 +89,43 @@ describe('FabricEditorRenderer', () => {
     renderer.dispose();
   });
 
+  it('같은 element 수정은 Fabric 객체 identity를 유지하고 scale을 정규화한 채 Canvas 전체를 clear하지 않는다', async () => {
+    const renderer = new FabricEditorRenderer(gateway);
+    renderer.mount(canvasElement());
+    const design = textDesign();
+
+    await renderer.render(design);
+    const canvas = fabricState.canvases.at(-1);
+    const title = canvas.objects.find((object: any) => getElementId(object) === 'title');
+    title.set({ scaleX: 1.25, scaleY: 1.25 });
+    const updatedTitle = design.pages[0].elements.find((element) => element.id === 'title' && element.type === 'text');
+    if (!updatedTitle || updatedTitle.type !== 'text') throw new Error('title 텍스트가 없습니다.');
+    const expectedX = updatedTitle.x + 40;
+    const updated: Design = {
+      ...design,
+      pages: [{
+        ...design.pages[0],
+        elements: design.pages[0].elements.map((element) => element.id === 'title' && element.type === 'text'
+          ? { ...element, text: '객체를 유지한 채 수정', color: '#123456', x: expectedX }
+          : element),
+      }],
+    };
+
+    await renderer.render(updated);
+
+    const renderedTitle = canvas.objects.find((object: any) => getElementId(object) === 'title');
+    expect(renderedTitle).toBe(title);
+    expect(renderedTitle).toMatchObject({
+      text: '객체를 유지한 채 수정',
+      fill: '#123456',
+      left: expectedX,
+      scaleX: 1,
+      scaleY: 1,
+    });
+    expect(canvas.clear).not.toHaveBeenCalled();
+    renderer.dispose();
+  });
+
   it('programmatic 다중 ID도 첫 요소 하나만 선택해 ActiveSelection을 만들지 않는다', async () => {
     const renderer = new FabricEditorRenderer(gateway);
     renderer.mount(canvasElement());
@@ -102,7 +154,20 @@ describe('FabricEditorRenderer', () => {
         background: '#fff',
         elements: [
           { id: 'kept-text', type: 'text', text: 'kept', x: 0, y: 0, width: 100, height: 50, rotation: 0, opacity: 1, fontFamily: 'system-ui', fontSize: 20, fontWeight: 400, color: '#000', textAlign: 'left' },
-          { id: 'broken-image', type: 'image', assetId: 'broken', x: 10, y: 70, width: 100, height: 100, rotation: 0, opacity: 1 },
+          {
+            id: 'broken-image',
+            type: 'image',
+            assetId: 'broken',
+            x: 10,
+            y: 70,
+            width: 100,
+            height: 100,
+            rotation: 0,
+            opacity: 1,
+            cropZoom: 1,
+            cropFocusX: 0,
+            cropFocusY: 0,
+          },
           { id: 'kept-shape', type: 'shape', shape: 'rectangle', x: 10, y: 200, width: 100, height: 50, rotation: 0, opacity: 1, fill: '#fff' },
         ],
       }],
@@ -123,7 +188,27 @@ describe('FabricEditorRenderer', () => {
     let resolveImage: ((image: FabricImage) => void) | undefined;
     const image = new FabricImage(document.createElement('img'), { width: 100, height: 100 });
     vi.spyOn(FabricImage, 'fromURL').mockImplementationOnce(() => new Promise((resolve) => { resolveImage = resolve; }));
-    const imageDesign: Design = { ...createSampleDesign(), pages: [{ id: 'image-page', background: '#fff', elements: [{ id: 'old-image', type: 'image', assetId: 'old', x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1 }] }] };
+    const imageDesign: Design = {
+      ...createSampleDesign(),
+      pages: [{
+        id: 'image-page',
+        background: '#fff',
+        elements: [{
+          id: 'old-image',
+          type: 'image',
+          assetId: 'old',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+          cropZoom: 1,
+          cropFocusX: 0,
+          cropFocusY: 0,
+        }],
+      }],
+    };
     const latestDesign: Design = { ...imageDesign, pages: [{ id: 'latest-page', background: '#fff', elements: [{ id: 'latest-text', type: 'text', text: 'latest', x: 0, y: 0, width: 100, height: 50, rotation: 0, opacity: 1, fontFamily: 'Arial', fontSize: 20, fontWeight: 400, color: '#000', textAlign: 'left' }] }] };
 
     const stale = renderer.render(imageDesign);

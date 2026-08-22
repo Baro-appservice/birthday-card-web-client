@@ -38,7 +38,7 @@ function createRenderer(): EditorRenderer {
 afterEach(() => vi.restoreAllMocks());
 
 describe('persistence와 Editor 통합', () => {
-  it('실제 업로드 크기로 만든 ImageElement는 schema 검증과 repository 저장을 통과한다', async () => {
+  it('실제 업로드 크기로 만든 ImageElement는 crop 기본값과 함께 schema 검증·repository 저장을 통과한다', async () => {
     const db = await openEditorDb(`birthday-canvas-editor-${crypto.randomUUID()}`);
     const assetGateway = new BrowserAssetGateway(db, {
       decoder: async () => ({ width: 800, height: 600 }),
@@ -62,9 +62,21 @@ describe('persistence와 Editor 통합', () => {
     const image = saved.pages[0].elements.find((element) => element.id === 'uploaded-photo');
     await repository.save('local-demo', saved);
 
-    expect(image).toMatchObject({ type: 'image', width: 640, height: 480 });
+    expect(image).toMatchObject({
+      type: 'image',
+      width: 640,
+      height: 480,
+      cropZoom: 1,
+      cropFocusX: 0,
+      cropFocusY: 0,
+    });
     expect(designSchema.safeParse(saved).success).toBe(true);
-    await expect(repository.load('local-demo')).resolves.toEqual({ status: 'loaded', design: saved });
+    await expect(repository.load('local-demo')).resolves.toMatchObject({
+      status: 'loaded',
+      design: saved,
+      needsSave: false,
+      updatedAt: expect.any(Number),
+    });
 
     editor.dispose();
     assetGateway.dispose();

@@ -37,6 +37,9 @@ export function createSampleDesign(): Design {
             rotation: 0,
             opacity: 1,
             assetId: 'builtin:birthday-photo',
+            cropZoom: 1,
+            cropFocusX: 0,
+            cropFocusY: 0,
           },
           {
             id: 'title',

@@ -25,7 +25,19 @@ export function ImagePanel() {
       <label className="flex min-h-24 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-muted)] px-3 text-center text-sm font-semibold text-[var(--brand)] focus-within:ring-2 focus-within:ring-[var(--brand)] focus-within:ring-offset-2">
         <span>사진 추가</span>
         <span className="mt-1 text-xs font-normal text-[var(--ink-muted)]">PNG · JPEG · WebP</span>
-        <input aria-label="사진 파일 선택" type="file" accept={IMAGE_ACCEPT} className="sr-only" onChange={(event) => void upload(event.target.files?.[0])} />
+        <input
+          aria-label="사진 파일 선택"
+          type="file"
+          accept={IMAGE_ACCEPT}
+          className="sr-only"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            // Native file inputs do not emit change when the same file is chosen
+            // twice in a row unless their value is cleared after capture.
+            event.currentTarget.value = '';
+            void upload(file);
+          }}
+        />
       </label>
     </section>
   );

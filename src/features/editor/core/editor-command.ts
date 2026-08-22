@@ -1,6 +1,8 @@
 export interface EditorCommand {
   execute(): void;
   undo(): void;
+  mergeWith?(next: EditorCommand): EditorCommand | null;
+  referencedAssetIds?(): ReadonlySet<string>;
 }
 
 function rethrowWithCompensationErrors(
@@ -56,5 +58,13 @@ export class CompositeEditorCommand implements EditorCommand {
       }
       rethrowWithCompensationErrors(error, compensationErrors, 'undo');
     }
+  }
+
+  referencedAssetIds(): ReadonlySet<string> {
+    const ids = new Set<string>();
+    for (const command of this.commands) {
+      for (const id of command.referencedAssetIds?.() ?? []) ids.add(id);
+    }
+    return ids;
   }
 }

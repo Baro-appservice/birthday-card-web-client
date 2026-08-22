@@ -1,4 +1,4 @@
-import type { DesignElement } from '@/entities/design';
+import { collectElementAssetIds, type DesignElement } from '@/entities/design';
 import type { DesignStore } from '@/features/editor/model/design-store';
 
 import type { EditorCommand } from '../core/editor-command';
@@ -35,5 +35,9 @@ export class DeleteElementCommand implements EditorCommand {
   undo(): void {
     this.store.getState().addElement(this.pageId, this.element);
     this.store.getState().moveElement(this.pageId, this.elementId, this.index);
+  }
+
+  referencedAssetIds(): ReadonlySet<string> {
+    return new Set(collectElementAssetIds(this.element));
   }
 }

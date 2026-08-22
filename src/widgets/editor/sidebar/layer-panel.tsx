@@ -6,12 +6,15 @@ import { useDesignStore, useEditor, useEditorRuntimeStore, useEditorUiStore } fr
 function layerName(element: DesignElement): string {
   if (element.type === 'text') return element.text;
   if (element.type === 'image') return '사진';
-  return element.shape === 'circle' ? '원 도형' : '사각형 도형';
+  if (element.shape === 'circle') return '원 도형';
+  if (element.shape === 'ellipse') return '타원 도형';
+  return '사각형 도형';
 }
 
 export function LayerPanel() {
   const editor = useEditor();
-  const page = useDesignStore((state) => state.design.pages[0]);
+  const activePageId = useEditorRuntimeStore((state) => state.activePageId);
+  const page = useDesignStore((state) => state.design.pages.find((candidate) => candidate.id === activePageId));
   const selectedElementIds = useEditorRuntimeStore((state) => state.selectedElementIds);
   const setError = useEditorUiStore((state) => state.setError);
   const selectElement = async (elementId: string) => {
