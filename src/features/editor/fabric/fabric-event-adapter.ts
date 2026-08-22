@@ -3,6 +3,7 @@ import { Textbox, type Canvas, type FabricObject } from 'fabric';
 
 import { readTextTransform, readTransform } from './fabric-element-mapper';
 import { getElementId } from './fabric-object-metadata';
+import { FabricSnapGuides } from './fabric-snap-guides';
 
 type FabricEvent = { target?: FabricObject; selected?: FabricObject[] };
 type TextFabricObject = FabricObject & { text?: string };
@@ -31,6 +32,7 @@ export class FabricEventAdapter {
   private readonly beforeTransforms = new WeakMap<FabricObject, TransformSnapshot>();
   private readonly lastTexts = new WeakMap<FabricObject, string>();
   private readonly textHistoryGroups = new WeakMap<FabricObject, string>();
+  private readonly snapGuides: FabricSnapGuides;
   private selection: string[] = [];
   private disposed = false;
   private suppressSelectionEvents = 0;
@@ -38,12 +40,30 @@ export class FabricEventAdapter {
   private readonly handlers = {
     selectionCreated: () => this.emitSelection(this.canvas.getActiveObjects()),
     selectionUpdated: () => this.emitSelection(this.canvas.getActiveObjects()),
-    selectionCleared: () => this.emitSelection([]),
-    beforeTransform: (event: FabricEvent) => this.captureTransform(event.target, true),
-    objectMoving: (event: FabricEvent) => this.captureTransform(event.target),
-    objectScaling: (event: FabricEvent) => this.captureTransform(event.target),
-    objectRotating: (event: FabricEvent) => this.captureTransform(event.target),
-    objectModified: (event: FabricEvent) => this.emitTransform(event.target),
+    selectionCleared: () => {
+      this.snapGuides.clear();
+      this.emitSelection([]);
+    },
+    beforeTransform: (event: FabricEvent) => {
+      this.snapGuides.clear();
+      this.captureTransform(event.target, true);
+    },
+    objectMoving: (event: FabricEvent) => {
+      this.captureTransform(event.target);
+      this.snapGuides.handleMoving(event.target);
+    },
+    objectScaling: (event: FabricEvent) => {
+      this.snapGuides.clear();
+      this.captureTransform(event.target);
+    },
+    objectRotating: (event: FabricEvent) => {
+      this.snapGuides.clear();
+      this.captureTransform(event.target);
+    },
+    objectModified: (event: FabricEvent) => {
+      this.snapGuides.clear();
+      this.emitTransform(event.target);
+    },
     textEditingEntered: (event: FabricEvent) => this.captureText(event.target),
     textChanged: (event: FabricEvent) => this.emitText(event.target),
     textEditingExited: (event: FabricEvent) => this.finishText(event.target),
@@ -53,6 +73,7 @@ export class FabricEventAdapter {
     private readonly canvas: Canvas,
     private readonly emit: (event: EditorEvent) => void,
   ) {
+    this.snapGuides = new FabricSnapGuides(canvas);
     this.on('selection:created', this.handlers.selectionCreated);
     this.on('selection:updated', this.handlers.selectionUpdated);
     this.on('selection:cleared', this.handlers.selectionCleared);
@@ -85,6 +106,7 @@ export class FabricEventAdapter {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.snapGuides.clear(false);
     this.off('selection:created', this.handlers.selectionCreated);
     this.off('selection:updated', this.handlers.selectionUpdated);
     this.off('selection:cleared', this.handlers.selectionCleared);
