@@ -86,7 +86,7 @@ const alignments: ReadonlyArray<{
   { value: 'bottom', label: '캔버스 아래쪽에 맞춤', shortLabel: '하' },
 ];
 
-type CropKey = 'cropZoom' | 'cropX' | 'cropY';
+type CropKey = 'cropZoom' | 'cropFocusX' | 'cropFocusY';
 
 function ImageCropControls({
   selected,
@@ -100,8 +100,8 @@ function ImageCropControls({
   const editor = useEditor();
   const [draft, setDraft] = useState({
     cropZoom: Math.round((selected.cropZoom ?? 1) * 100),
-    cropX: Math.round((selected.cropX ?? 0) * 100),
-    cropY: Math.round((selected.cropY ?? 0) * 100),
+    cropFocusX: Math.round((selected.cropFocusX ?? 0) * 100),
+    cropFocusY: Math.round((selected.cropFocusY ?? 0) * 100),
   });
   const groupsRef = useRef<Partial<Record<CropKey, string>>>({});
   const selectedIdRef = useRef(selected.id);
@@ -109,8 +109,8 @@ function ImageCropControls({
   useEffect(() => {
     const next = {
       cropZoom: Math.round((selected.cropZoom ?? 1) * 100),
-      cropX: Math.round((selected.cropX ?? 0) * 100),
-      cropY: Math.round((selected.cropY ?? 0) * 100),
+      cropFocusX: Math.round((selected.cropFocusX ?? 0) * 100),
+      cropFocusY: Math.round((selected.cropFocusY ?? 0) * 100),
     };
     if (selectedIdRef.current !== selected.id) {
       selectedIdRef.current = selected.id;
@@ -120,10 +120,10 @@ function ImageCropControls({
     }
     setDraft((current) => ({
       cropZoom: groupsRef.current.cropZoom ? current.cropZoom : next.cropZoom,
-      cropX: groupsRef.current.cropX ? current.cropX : next.cropX,
-      cropY: groupsRef.current.cropY ? current.cropY : next.cropY,
+      cropFocusX: groupsRef.current.cropFocusX ? current.cropFocusX : next.cropFocusX,
+      cropFocusY: groupsRef.current.cropFocusY ? current.cropFocusY : next.cropFocusY,
     }));
-  }, [selected.id, selected.cropZoom, selected.cropX, selected.cropY]);
+  }, [selected.id, selected.cropZoom, selected.cropFocusX, selected.cropFocusY]);
 
   const ensureGroup = (key: CropKey) => {
     if (!groupsRef.current[key]) {
@@ -142,9 +142,14 @@ function ImageCropControls({
     setDraft((current) => ({ ...current, [key]: bounded }));
     const historyGroup = ensureGroup(key);
     const value = bounded / 100;
+    const changes = key === 'cropZoom'
+      ? { cropZoom: value }
+      : key === 'cropFocusX'
+        ? { cropFocusX: value }
+        : { cropFocusY: value };
     void run(
       () => editor.updateSelection(
-        { type: 'image', changes: { [key]: value } },
+        { type: 'image', changes },
         { historyGroup },
       ),
       '사진 프레임 위치를 바꾸지 못했습니다.',
@@ -189,18 +194,18 @@ function ImageCropControls({
         `${draft.cropZoom}%`,
       )}
       {slider(
-        'cropX',
+        'cropFocusX',
         '사진 가로 위치',
         IMAGE_CROP_FOCUS_MIN * 100,
         IMAGE_CROP_FOCUS_MAX * 100,
-        `${draft.cropX}%`,
+        `${draft.cropFocusX}%`,
       )}
       {slider(
-        'cropY',
+        'cropFocusY',
         '사진 세로 위치',
         IMAGE_CROP_FOCUS_MIN * 100,
         IMAGE_CROP_FOCUS_MAX * 100,
-        `${draft.cropY}%`,
+        `${draft.cropFocusY}%`,
       )}
       <Button
         variant="ghost"
@@ -208,7 +213,7 @@ function ImageCropControls({
         onClick={() => void run(
           () => editor.updateSelection({
             type: 'image',
-            changes: { cropZoom: 1, cropX: 0, cropY: 0 },
+            changes: { cropZoom: 1, cropFocusX: 0, cropFocusY: 0 },
           }),
           '사진 프레임을 초기화하지 못했습니다.',
         ).catch(() => undefined)}
