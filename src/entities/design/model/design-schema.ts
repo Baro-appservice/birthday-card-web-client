@@ -193,8 +193,8 @@ export const imageElementSchema = v3BaseElementSchema
     type: z.literal('image'),
     assetId: assetIdSchema,
     cropZoom: z.number().min(IMAGE_CROP_ZOOM_MIN).max(IMAGE_CROP_ZOOM_MAX),
-    cropX: z.number().min(IMAGE_CROP_FOCUS_MIN).max(IMAGE_CROP_FOCUS_MAX),
-    cropY: z.number().min(IMAGE_CROP_FOCUS_MIN).max(IMAGE_CROP_FOCUS_MAX),
+    cropFocusX: z.number().min(IMAGE_CROP_FOCUS_MIN).max(IMAGE_CROP_FOCUS_MAX),
+    cropFocusY: z.number().min(IMAGE_CROP_FOCUS_MIN).max(IMAGE_CROP_FOCUS_MAX),
   })
   .strict();
 
