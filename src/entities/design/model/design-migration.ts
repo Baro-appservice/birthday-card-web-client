@@ -74,7 +74,7 @@ function migrateV2ToV3(input: unknown): unknown {
     pages: design.pages.map((page) => ({
       ...page,
       elements: page.elements.map((element) => element.type === 'image'
-        ? { ...element, cropZoom: 1, cropX: 0, cropY: 0 }
+        ? { ...element, cropZoom: 1, cropFocusX: 0, cropFocusY: 0 }
         : element),
     })),
   };
@@ -150,17 +150,17 @@ function normalizeElement(element: DesignElement): { element: DesignElement; cha
   }
 
   const cropZoom = clampImageCropZoom(element.cropZoom ?? 1);
-  const cropX = clampImageCropFocus(element.cropX ?? 0);
-  const cropY = clampImageCropFocus(element.cropY ?? 0);
+  const cropFocusX = clampImageCropFocus(element.cropFocusX ?? 0);
+  const cropFocusY = clampImageCropFocus(element.cropFocusY ?? 0);
   if (
     cropZoom === element.cropZoom
-    && cropX === element.cropX
-    && cropY === element.cropY
+    && cropFocusX === element.cropFocusX
+    && cropFocusY === element.cropFocusY
   ) {
     return { element, changed: false };
   }
   return {
-    element: { ...element, cropZoom, cropX, cropY },
+    element: { ...element, cropZoom, cropFocusX, cropFocusY },
     changed: true,
   };
 }
