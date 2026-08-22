@@ -23,13 +23,13 @@ describe('Editor image crop', () => {
       { historyGroup: 'image-crop:session' },
     );
 
-    expect(photo(kit)).toMatchObject({ cropZoom: 2.2, cropX: 0, cropY: 0 });
+    expect(photo(kit)).toMatchObject({ cropZoom: 2.2, cropFocusX: 0, cropFocusY: 0 });
 
     await kit.editor.undo();
-    expect(photo(kit)).toMatchObject({ cropZoom: 1, cropX: 0, cropY: 0 });
+    expect(photo(kit)).toMatchObject({ cropZoom: 1, cropFocusX: 0, cropFocusY: 0 });
 
     await kit.editor.redo();
-    expect(photo(kit)).toMatchObject({ cropZoom: 2.2, cropX: 0, cropY: 0 });
+    expect(photo(kit)).toMatchObject({ cropZoom: 2.2, cropFocusX: 0, cropFocusY: 0 });
   });
 
   it('crop 위치와 확대 범위를 검증해 잘못된 값은 document를 바꾸지 않는다', async () => {
@@ -40,17 +40,17 @@ describe('Editor image crop', () => {
       type: 'image', changes: { cropZoom: 3.1 },
     })).rejects.toThrow('확대');
     await expect(kit.editor.updateSelection({
-      type: 'image', changes: { cropX: -1.1 },
+      type: 'image', changes: { cropFocusX: -1.1 },
     })).rejects.toThrow('위치');
 
-    expect(photo(kit)).toMatchObject({ cropZoom: 1, cropX: 0, cropY: 0 });
+    expect(photo(kit)).toMatchObject({ cropZoom: 1, cropFocusX: 0, cropFocusY: 0 });
   });
 
   it('사진 교체 시 이전 사진의 crop 상태를 새 사진에 넘기지 않고 중앙 1배로 초기화한다', async () => {
     const kit = createEditorTestKit();
     kit.runtimeStore.getState().setSelectedElementIds(['photo']);
     await kit.editor.updateSelection({
-      type: 'image', changes: { cropZoom: 2.4, cropX: 0.7, cropY: -0.5 },
+      type: 'image', changes: { cropZoom: 2.4, cropFocusX: 0.7, cropFocusY: -0.5 },
     });
     vi.mocked(kit.assetGateway.upload).mockResolvedValue({
       id: 'asset:replacement',
@@ -63,8 +63,8 @@ describe('Editor image crop', () => {
     expect(photo(kit)).toMatchObject({
       assetId: 'asset:replacement',
       cropZoom: 1,
-      cropX: 0,
-      cropY: 0,
+      cropFocusX: 0,
+      cropFocusY: 0,
     });
   });
 });
